@@ -3365,9 +3365,9 @@ $ http://nginx.luffy.com/api/v2/
 13. 为了实现集群外使用域名访问myblog，因此引入Ingress资源，通过定义访问规则，实现七层代理
 14. 考虑真实的场景，对Ingress的使用做了拓展，介绍多path转发及nginx URL重写的实现
 
-![image-20210718010150267](第二天 Kubernetes落地实践之旅_20210605.assets/image-20210718010150267.png)
+![image-20210718010150267](day02_Kubernetes落地实践之旅_20210605.assets/image-20210718010150267.png)
 
-![image-20210718010208545](第二天 Kubernetes落地实践之旅_20210605.assets/image-20210718010208545.png)
+![image-20210718010208545](day02_Kubernetes落地实践之旅_20210605.assets/image-20210718010208545.png)
 
-![image-20210718010238444](第二天 Kubernetes落地实践之旅_20210605.assets/image-20210718010238444.png)
+![image-20210718010238444](day02_Kubernetes落地实践之旅_20210605.assets/image-20210718010238444.png)
 
