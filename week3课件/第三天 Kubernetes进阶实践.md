@@ -1473,6 +1473,8 @@ Certificate:
         ...
 ```
 
+> 通过解析拿到：  Subject: O=system:masters, CN=kubernetes-admin
+
 认证通过后，提取出签发证书时指定的CN(Common Name),`kubernetes-admin`，作为请求的用户名 (User Name), 从证书中提取O(Organization)字段作为请求用户所属的组 (Group)，`group = system:masters`，然后传递给后面的授权模块。
 
 kubeadm在init初始引导集群启动过程中，创建了许多默认的RBAC规则， 在k8s有关RBAC的官方文档中，我们看到下面一些`default clusterrole`列表: 
@@ -1514,9 +1516,6 @@ PolicyRule:
   ---------  -----------------  --------------  -----
   *.*        []                 []              [*]
              [*]                []              [*]
-
-
-
 ```
 
 非资源类，如查看集群健康状态。
@@ -1824,13 +1823,26 @@ kube-apiserver --authorization-mode=Node,RBAC  --enable-admission-plugins=NodeRe
 
 
 
-###### Service Account及K8S Api调用
+###### 中场小结
 
-前面说，认证可以通过证书，也可以通过使用ServiceAccount（服务账户）的方式来做认证。大多数时候，我们在基于k8s做二次开发时都是选择通过ServiceAccount + RBAC 的方式。我们之前访问dashboard的时候，是如何做的？
+![image-20210719230808051](第三天 Kubernetes进阶实践.assets/image-20210719230808051-1626707291394.png)
+
+
+
+
+
+---
+
+###### Service Account及K8S Api调用（用的最多）
+
+前面说，认证可以通过证书，也可以通过使用ServiceAccount（服务账户）的方式来做认证。大多数时候，我们
+
+`基于k8s做二次开发时都是选择通过ServiceAccount + RBAC 的方式`。我们之前访问dashboard的时候，是如何做的？
 
 ```yaml
-## 新建一个名为admin的serviceaccount，并且把名为cluster-admin的这个集群角色的权限授予新建的
-#serviceaccount
+## 新建一个名为admin的serviceaccount，并且把名为cluster-admin的这个集群角色的权限授予新建的serviceaccount
+$ vi serviceaccount.conf
+
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -1845,19 +1857,25 @@ metadata:
     rbac.authorization.kubernetes.io/autoupdate: "true"
 roleRef:
   kind: ClusterRole
-  name: cluster-admin
+  name: cluster-admin  # 
   apiGroup: rbac.authorization.k8s.io
 subjects:
-- kind: ServiceAccount
-  name: admin
+- kind: ServiceAccount  
+  name: admin    # admin给了cluster-admin的权限
   namespace: kubernetes-dashboard
-
-
 ```
 
 我们查看一下：
 
 ```powershell
+# 创建
+$ kubectl apply -f serviceaccount.conf
+
+# 查看account
+$  kubectl -n kubernetes-dashboard get serviceaccounts 
+[root@k8s-master week03]# kubectl -n kubernetes-dashboard describe sa admin 
+
+# 查看admin的serviceAccount
 $ kubectl -n kubernetes-dashboard get sa admin -o yaml
 apiVersion: v1
 kind: ServiceAccount
@@ -1870,14 +1888,18 @@ metadata:
   uid: 639ecc3e-74d9-11ea-a59b-000c29dfd73f
 secrets:
 - name: admin-token-lfsrf
-
-
 ```
 
 注意到serviceaccount上默认绑定了一个名为admin-token-lfsrf的secret，我们查看一下secret
 
+> 该token可以用k8s里面的鉴权认证，
+> dashboard可以直接访问k8s-api
+
 ```powershell
+# 查看secret中admin-token-lfsrf  的token
+$ kubectl -n kubernetes-dashboard get secrets
 $ kubectl -n kubernetes-dashboard describe secret admin-token-lfsrf
+
 Name:         admin-token-lfsrf
 Namespace:    kubernetes-dashboard
 Labels:       <none>
@@ -1890,18 +1912,51 @@ Data
 ca.crt:     1025 bytes
 namespace:  4 bytes
 token:      eyJhbGciOiJSUzI1NiIsImtpZCI6IiJ9.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJkZW1vIiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZWNyZXQubmFtZSI6ImFkbWluLXRva2VuLWxmc3JmIiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZXJ2aWNlLWFjY291bnQubmFtZSI6ImFkbWluIiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZXJ2aWNlLWFjY291bnQudWlkIjoiNjM5ZWNjM2UtNzRkOS0xMWVhLWE1OWItMDAwYzI5ZGZkNzNmIiwic3ViIjoic3lzdGVtOnNlcnZpY2VhY2NvdW50OmRlbW86YWRtaW4ifQ.ffGCU4L5LxTsMx3NcNixpjT6nLBi-pmstb4I-W61nLOzNaMmYSEIwAaugKMzNR-2VwM14WbuG04dOeO67niJeP6n8-ALkl-vineoYCsUjrzJ09qpM3TNUPatHFqyjcqJ87h4VKZEqk2qCCmLxB6AGbEHpVFkoge40vHs56cIymFGZLe53JZkhu3pwYuS4jpXytV30Ad-HwmQDUu_Xqcifni6tDYPCfKz2CZlcOfwqHeGIHJjDGVBKqhEeo8PhStoofBU6Y4OjObP7HGuTY-Foo4QindNnpp0QU6vSb7kiOiQ4twpayybH8PTf73dtdFt46UF6mGjskWgevgolvmO8A
-
-
 ```
+
+如何用token访问api呢？
+
+```shell
+# 打印日志  v代表level=6
+[root@k8s-master week03]# kubectl get nodes -v=6
+I0719 12:52:59.325445   35590 loader.go:375] Config loaded from file:  /root/.kube/config
+I0719 12:52:59.347857   35590 round_trippers.go:444] GET https://192.168.150.128:6443/api/v1/nodes?limit=500 200 OK in 11 milliseconds
+NAME         STATUS   ROLES    AGE     VERSION
+k8s-master   Ready    master   2d13h   v1.19.8
+k8s-slave1   Ready    <none>   2d13h   v1.19.8
+k8s-slave2   Ready    <none>   2d13h   v1.19.8
+
+# curl直接访问url，无权限
+[root@k8s-master week03]# curl -k https://192.168.150.128:6443/api/v1/nodes?limit=500
+{
+  "kind": "Status",
+  "apiVersion": "v1",
+  "metadata": {
+    
+  },
+  "status": "Failure",
+  "message": "nodes is forbidden: User \"system:anonymous\" cannot list resource \"nodes\" in API group \"\" at the cluster scope",
+  "reason": "Forbidden",
+  "details": {
+    "kind": "nodes"
+  },
+  "code": 403
+
+# 携带token访问
+$ curl -k  -H "" https://192.168.150.128:6443/api/v1/nodes?limit=500
+```
+
+
 
 
 
 ![](images\rbac.jpg)
 
-只允许访问luffy命名空间的pod资源：
+- `限制权限的演示`，只允许访问luffy命名空间的pod资源：
 
 ```powershell
-$ cat luffy-admin-rbac.yaml
+# 创建文件
+$ vim luffy-admin-rbac.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -1914,10 +1969,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   namespace: luffy
   name: pods-reader-writer
-rules:
+rules:  # 只有访问luffy命名空间的pods的权限
 - apiGroups: [""] # "" indicates the core API group
   resources: ["pods"]
   verbs: ["*"]
+  
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1931,10 +1987,14 @@ subjects:
 roleRef:
   kind: Role #这里可以是Role或者ClusterRole,若是ClusterRole，则权限也仅限于rolebinding的内部
   name: pods-reader-writer
-  apiGroup: rbac.authorization.k8s.io
+  apiGroup: rbac.authorization.k8s.io 
 ```
 
+创建权限并生效
 
+```
+kubectl apply -f  luffy-admin
+```
 
 演示权限：
 
@@ -1942,7 +2002,10 @@ roleRef:
 $ kubectl -n luffy describe secrets luffy-pods-admin-token-prr25
 ...
 token:      eyJhbGciOiJSUzI1NiIsImtpZCI6InBtQUZfRl8ycC03TTBYaUUwTnJVZGpvQWU0cXZ5M2FFbjR2ZjkzZVcxOE0ifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJsdWZmeSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJsdWZmeS1hZG1pbi10b2tlbi1wcnIyNSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJsdWZmeS1hZG1pbiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6ImFhZDA0MTU3LTliNzMtNDJhZC1hMGU4LWVmOTZlZDU3Yzg1ZiIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDpsdWZmeTpsdWZmeS1hZG1pbiJ9.YWckylE5wlKITKrVltXY4VPKvZP9ar5quIT5zq9N-0_FnDkLIBX7xOyFvZA5Wef0wSFSZe3e9FwrO1UbPsmK7cZn74bhH8cNdoH_YVbIVT3-6tIOlCA_Bc8YypGE1gl-ZvLOIPV7WnRQsWpWtZtqfKBSkwLAHgWoxcx_d1bOcyTOdPmsW224xcBxjYwi6iRUtjTJST0LzOcAOCPDZq6-lqYUwnxLO_afxwg71BGX4etE48Iny8TxSEIs1VJRahoabC7hVOs17ujEm5loTDSpfuhae51qSDg8xeYwRHdM42aLUmc-wOvBWauHa5EHbH9rWPAnpaGIwF8QvnLszqp4QQ
-...
+
+
+# 直接访问失败
+# 添加token访问k8s-api，能拿到数据
 $ curl -k  -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6InBtQUZfRl8ycC03TTBYaUUwTnJVZGpvQWU0cXZ5M2FFbjR2ZjkzZVcxOE0ifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJsdWZmeSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJsdWZmeS1hZG1pbi10b2tlbi1wcnIyNSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJsdWZmeS1hZG1pbiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6ImFhZDA0MTU3LTliNzMtNDJhZC1hMGU4LWVmOTZlZDU3Yzg1ZiIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDpsdWZmeTpsdWZmeS1hZG1pbiJ9.YWckylE5wlKITKrVltXY4VPKvZP9ar5quIT5zq9N-0_FnDkLIBX7xOyFvZA5Wef0wSFSZe3e9FwrO1UbPsmK7cZn74bhH8cNdoH_YVbIVT3-6tIOlCA_Bc8YypGE1gl-ZvLOIPV7WnRQsWpWtZtqfKBSkwLAHgWoxcx_d1bOcyTOdPmsW224xcBxjYwi6iRUtjTJST0LzOcAOCPDZq6-lqYUwnxLO_afxwg71BGX4etE48Iny8TxSEIs1VJRahoabC7hVOs17ujEm5loTDSpfuhae51qSDg8xeYwRHdM42aLUmc-wOvBWauHa5EHbH9rWPAnpaGIwF8QvnLszqp4QQ" https://172.21.51.143:6443/api/v1/namespaces/luffy/pods?limit=500
 
 # https://172.21.51.143:6443/api/v1/nodes
@@ -1974,7 +2037,7 @@ $ openssl x509 -req -in luffy.csr -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kub
 配置kubeconfig文件：
 
 ```powershell
-# 创建kubeconfig文件，指定集群名称和地址
+# 创建kubeconfig文件，指定集群名称和地址，指定自己的master
 $ kubectl config set-cluster luffy-cluster --certificate-authority=/etc/kubernetes/pki/ca.crt --embed-certs=true --server=https://172.21.51.143:6443 --kubeconfig=luffy.kubeconfig
 
 # 为kubeconfig文件添加认证信息
@@ -1993,7 +2056,7 @@ $ kubectl config use-context luffy-context --kubeconfig=luffy.kubeconfig
 
 ```powershell
 # 设置当前kubectl使用的config文件
-$ export KUBECONFIG=luffy.kubeconfig
+$ export KUBECONFIG=/home/redhat/week03/luffy.kubeconfig
 
 # 当前不具有任何权限，因为没有为用户或者组设置RBAC规则
 $ kubectl get po
@@ -2003,7 +2066,7 @@ Error from server (Forbidden): pods is forbidden: User "luffy-admin" cannot list
 
 
 
-为luffy用户添加luffy命名空间访问权限：
+为luffy-admin用户，添加luffy命名空间访问权限：
 
 ```powershell
 # 定义role，具有luffy命名空间的所有权限
@@ -2033,6 +2096,21 @@ roleRef:
   kind: Role #this must be Role or ClusterRole
   name: luffy-admin # 这里的名称必须与你想要绑定的 Role 或 ClusterRole 名称一致
   apiGroup: rbac.authorization.k8s.io
+```
+
+恢复之前的kubeconfig，创建
+
+```
+export KUBECONFIG=
+
+kubectl apply -f .
+```
+
+再次用luffy的配置文件，访问luffy下的pod，成功
+
+```
+export KUBECONFIG=luffy.kubeconfig
+kubcetl -n luffy get pod
 ```
 
 
