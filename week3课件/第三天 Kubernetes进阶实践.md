@@ -1,4 +1,4 @@
-### 第三天 Kubernetes进阶实践
+###  第三天 Kubernetes进阶实践
 
 本章介绍Kubernetes的进阶内容，包含Kubernetes集群调度、CNI插件、认证授权安全体系、分布式存储的对接、Helm的使用等，让学员可以更加深入的学习Kubernetes的核心内容。
 
@@ -44,17 +44,36 @@
 
 # cp容器内部的命令到本地
 $ docker cp etcd_containerxxx:/usr/local/bin/etcdctl /usr/bin/etcdctl
+
+# 测试
+[root@k8s-master week03]# etcdctl version
+etcdctl version: 3.4.13
+API version: 3.4
 ```
 
 查看etcd集群的成员节点：
 
 ```powershell
+# 声明etcd的版本为3，通过这个版本拿数据,相当于/api/v3（还有版本2）
 $ export ETCDCTL_API=3
-$ etcdctl --endpoints=https://[127.0.0.1]:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt --key=/etc/kubernetes/pki/etcd/healthcheck-client.key member list -w table
 
+# etcd证书位置
+[root@k8s-master ~]# ll /etc/kubernetes/pki/etcd/
+
+#指定证书， 查看资源列表
+[root@k8s-master ~]# etcdctl --endpoints=https://[127.0.0.1]:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt --key=/etc/kubernetes/pki/etcd/healthcheck-client.key member list -w table
++------------------+---------+------------+------------------------------+------------------------------+------------+
+|        ID        | STATUS  |    NAME    |          PEER ADDRS          |         CLIENT ADDRS         | IS LEARNER |
++------------------+---------+------------+------------------------------+------------------------------+------------+
+| 195a80a60518fb99 | started | k8s-master | https://192.168.150.128:2380 | https://192.168.150.128:2379 |      false |
++------------------+---------+------------+------------------------------+------------------------------+------------+
+
+
+# 别名
 $ alias etcdctl='etcdctl --endpoints=https://[127.0.0.1]:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt --key=/etc/kubernetes/pki/etcd/healthcheck-client.key'
 
 $ etcdctl member list -w table
+$ etcdctl member list 
 ```
 
 查看etcd集群节点状态：
@@ -67,16 +86,27 @@ $ etcdctl endpoint health -w table
 
 
 
-设置key值:
+设置key值:(把etcd当做redis)
+
+ETCD是存储配置，路径的，以key-value模式保存的
 
 ```powershell
 $ etcdctl put luffy 1
 $ etcdctl get luffy
+
+[root@k8s-master ~]# etcdctl get /luffy/key2
+/luffy/key2
+val2
+[root@k8s-master ~]# etcdctl get /luffy/key1
+/luffy/key1
+val1
+
+
 ```
 
 
 
-查看所有key值：
+查看所有key值： prefix前缀为/
 
 ```powershell
 $  etcdctl get / --prefix --keys-only
@@ -88,21 +118,47 @@ $  etcdctl get / --prefix --keys-only
 ```powershell
 $ etcdctl get /registry/pods/jenkins/sonar-postgres-7fc5d748b6-gtmsb
 
+
+[root@k8s-master ~]# kubectl get pod --all-namespaces
+
+# 查看luffy下的pod
+[root@k8s-master ~]# etcdctl get /registry/pods/luffy --prefix --keys-only
+等价于
+[root@k8s-master ~]# kubectl -n luffy get pod
+
+# 查看某个pod
+[root@k8s-master ~]# etcdctl get /registry/pods/luffy/myblog-77c549d66c-c6zmg 
+
 ```
 
-list-watch:
+list-watch: 实时监控
 
 ```powershell
 $ etcdctl watch /luffy/ --prefix
 $ etcdctl put /luffy/key1 val1
+
+[root@k8s-master ~]# etcdctl watch /luffy/ --prefix
+
+PUT
+/luffy/key4
+val4
+
 ```
 
 
 
-添加定时任务做数据快照（重要！）
+`添加定时任务做数据快照（重要！）`，一天至少备份一次
 
 ```powershell
 $ etcdctl snapshot save `hostname`-etcd_`date +%Y%m%d%H%M`.db
+
+[root@k8s-master week03]# ll -h
+total 4.8M
+-rw------- 1 root root 4.8M Jul 17 21:03 k8s-master-etcd_202107172103.db
+
+# 数据快照不是很大，如果大的话，有可能存在event，存在垃圾数据
+[root@k8s-master week03]# kubectl describe po test-nginx 
+Events:          <none>
 ```
 
 恢复快照：
@@ -112,6 +168,10 @@ $ etcdctl snapshot save `hostname`-etcd_`date +%Y%m%d%H%M`.db
 2. 移走当前数据目录
 
    ```powershell
+   [root@k8s-master ~]# mv /etc/kubernetes/manifests/ /opt/
+   [root@k8s-master ~]# kubectl get po
+   The connection to the server 192.168.150.128:6443 was refused - did you specify the right host or port?
+   
    $ mv /var/lib/etcd/ /tmp
    ```
 
@@ -120,10 +180,22 @@ $ etcdctl snapshot save `hostname`-etcd_`date +%Y%m%d%H%M`.db
    ```powershell
    $ etcdctl snapshot restore `hostname`-etcd_`date +%Y%m%d%H%M`.db --data-dir=/var/lib/etcd/
    
+   [root@k8s-master ~]# etcdctl snapshot restore k8s-master-etcd_202107172103.db --data-dir /var/lib/etcd
+   
    ```
 
 4. 集群恢复
 
+    ```
+    [root@k8s-master ~]# docker ps |grep etcd
+    [root@k8s-master ~]# docker ps |grep apis
+    [root@k8s-master ~]# kubectl get po
+    NAME         READY   STATUS    RESTARTS   AGE
+    test-nginx   1/1     Running   0          15h
+    ```
+    
+    
+    
     https://github.com/etcd-io/etcd/blob/master/Documentation/op-guide/recovery.md 
 
 
@@ -132,6 +204,19 @@ $ etcdctl snapshot save `hostname`-etcd_`date +%Y%m%d%H%M`.db
 
   很多情况下，会出现namespace删除卡住的问题，此时可以通过操作etcd来删除数据：
 
+  ```shell
+  # 创建namespace
+  [root@k8s-master week03]# kubectl create namespace jack
+  namespace/jack created
+  
+  # 查看namespace
+  [root@k8s-master week03]# kubectl get namespaces 
+  [root@k8s-master week03]# etcdctl get /registry/namespaces --prefix  --keys-only
+  
+  [root@k8s-master week03]# etcdctl del /registry/namespaces/jack
+  1
+  ```
+  
   
 
 
@@ -140,8 +225,8 @@ $ etcdctl snapshot save `hostname`-etcd_`date +%Y%m%d%H%M`.db
 
 ######  为何要控制Pod应该如何调度 
 
-- 集群中有些机器的配置高（SSD，更好的内存等），我们希望核心的服务（比如说数据库）运行在上面
-- 某两个服务的网络传输很频繁，我们希望它们最好在同一台机器上 
+- 集群中有些机器的配置高（SSD，更好的内存等），我们希望`核心的服务（比如说数据库）运行在上面`
+- 某`两个服务的网络传输很频繁`，我们希望它们`最好在同一台机器`上 
 - ......
 
 Kubernetes Scheduler 的作用是将待调度的 Pod 按照一定的调度算法和策略绑定到集群中一个合适的 Worker Node 上，并将绑定信息写入到 etcd 中，之后目标 Node 中 kubelet 服务通过 API Server 监听到 Scheduler 产生的 Pod 绑定事件获取 Pod 信息，然后下载镜像启动容器。
@@ -152,10 +237,18 @@ Kubernetes Scheduler 的作用是将待调度的 Pod 按照一定的调度算法
 
 Scheduler 提供的调度流程分为预选 (Predicates) 和优选 (Priorities) 两个步骤：
 
-- 预选，K8S会遍历当前集群中的所有 Node，筛选出其中符合要求的 Node 作为候选
+- 预选，K8S会遍历当前集群中的所有 Node，筛选出其中`符合要求打lable`的 Node 作为候选
 - 优选，K8S将对候选的 Node 进行打分
 
 经过预选筛选和优选打分之后，K8S选择分数最高的 Node 来运行 Pod，如果最终有多个 Node 的分数最高，那么 Scheduler 将从当中随机选择一个 Node 来运行 Pod。
+
+```
+面试官 vs 候选人
+1、预选，会docker，会golang  是or否
+2、优选，选出分数最高的几个   权重10,5
+```
+
+
 
 ![](images/kube-scheduler-process.png)
 
@@ -202,13 +295,19 @@ spec:
 
 ```
 
-###### nodeAffinity
+###### nodeAffinity节点亲和性
 
-节点亲和性 ， 比上面的`nodeSelector`更加灵活，它可以进行一些简单的逻辑组合，不只是简单的相等匹配 。分为两种，硬策略和软策略。
+Pod -> Node的标签
 
-requiredDuringSchedulingIgnoredDuringExecution ： 硬策略，如果没有满足条件的节点的话，就不断重试直到满足条件为止，简单说就是你必须满足我的要求，不然我就不会调度Pod。
+`节点亲和性` ， 比上面的`nodeSelector`更加灵活，它可以进行`一些简单的逻辑组合`，不只是简单的相等匹配 。分为两种，硬策略和软策略。
 
-preferredDuringSchedulingIgnoredDuringExecution：软策略，如果你没有满足调度要求的节点的话，Pod就会忽略这条规则，继续完成调度过程，说白了就是满足条件最好了，没有满足就忽略掉的策略。
+**required**DuringSchedulingIgnoredDuringExecution ： 硬策略，如果没有满足条件的节点的话，就不断重试直到满足条件为止，简单说就是你必须满足我的要求，不然我就不会调度Pod。
+
+>  Pod 不能运行在128和132两个节点上
+
+**preferred**DuringSchedulingIgnoredDuringExecution：软策略，如果你没有满足调度要求的节点的话，Pod就会忽略这条规则，继续完成调度过程，说白了就是满足条件最好了，没有满足就忽略掉的策略。
+
+> 如果有节点满足disktype=ssd或者sas的话就优先调度到这类节点上
 
 ```yaml
 #要求 Pod 不能运行在128和132两个节点上，如果有节点满足disktype=ssd或者sas的话就优先调度到这类节点上
@@ -253,16 +352,20 @@ spec:
 
 *如果nodeSelectorTerms下面有多个选项的话，满足任何一个条件就可以了；如果matchExpressions有多个选项的话，则必须同时满足这些条件才能正常调度 Pod*
 
-###### pod亲和性和反亲和性
+###### pod亲和性和反亲和性（场景多
+
+**podAntiAffinity** 反亲和性
+
+pod --> pod的标签
 
 场景：
 
 > myblog 启动多副本，但是期望可以尽量分散到集群的可用节点中
 
-分析：为了让myblog应用的多个pod尽量分散部署在集群中，可以利用pod的反亲和性，告诉调度器，如果某个节点中存在了myblog的pod，则可以根据实际情况，实现如下调度策略：
+分析：为了让myblog应用的多个pod尽量分散部署在集群中，可以利用`pod的反亲和性`，告诉调度器，如果某个节点中存在了myblog的pod，则可以根据实际情况，实现如下调度策略：
 
-- 不允许同一个node节点，调度两个myblog的副本
-- 可以允许同一个node节点中调度两个myblog的副本，前提是尽量把pod分散部署在集群中
+- 不允许同一个node节点，调度两个myblog的副本 (硬策略)
+- 可以允许同一个node节点中调度两个myblog的副本，前提是尽量把pod分散部署在集群中（软策略）
 
 ```yaml
 ...
@@ -279,7 +382,7 @@ spec:
             topologyKey: kubernetes.io/hostname
       containers:
 ...
-
+#如果某个节点中，存在了app=myblog的label的pod，那么调度器一定(required)不要(Anti)给我调度过去
 
 ...
     spec:
@@ -297,19 +400,53 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
 ...
+
+# 如果某个节点中，存在了app=myblog的label的pod，那么调度器尽量(preferred)不要(Anti)给我调度过去
 ```
 
 > https://kubernetes.io/zh/docs/concepts/scheduling-eviction/assign-pod-node/
 
+实践
+
+```shell
+# 编辑myblog的调度器，与container同级
+[root@k8s-master week03]# kubectl -n luffy edit deployments.apps myblog
+deployment.apps/myblog edited
+
+# 手动扩容
+[root@k8s-master week03]# kubectl -n luffy scale deployment myblog --replicas=4
+
+# 发现一个pod会处于pending中，
+[root@k8s-master week03]# kubectl -n luffy get pod -owide
+NAME                        READY   STATUS              RESTARTS   AGE    IP            NODE         NOMINATED NODE   READINESS GATES
+myblog-7f6d7ff58c-cg8hk     1/1     Running             2          3m4s   10.240.0.16   k8s-master   <none>           <none>
+myblog-7f6d7ff58c-nrrr2     1/1     Running             2          3m4s   10.240.1.23   k8s-slave1   <none>           <none>
+myblog-7f6d7ff58c-l759h     1/1     Running             2          3m4s   10.240.1.23   k8s-slave1   <none>           <none>
+myblog-7f6d7ff58c-tz4g4     0/1     Pending             2          3m4s   10.240.1.23   k8s-slave1   <none>           <none>
+
+# 查看信息，not match pod 
+[root@k8s-master week03]# kubectl -n luffy describe pod myblog-7f6d7ff58c-tz4g4 
+0/3 nodes are available: 3 node(s) did not match pod affinity/anti-affinity rules
+```
+
+
+
 ###### 污点（Taints）与容忍（tolerations）
 
-对于`nodeAffinity`无论是硬策略还是软策略方式，都是调度 Pod 到预期节点上，而`Taints`恰好与之相反，如果一个节点标记为 Taints ，除非 Pod 也被标识为可以容忍污点节点，否则该 Taints 节点不会被调度Pod。
+对于`nodeAffinity`无论是硬策略还是软策略方式，都是调度 Pod 到预期节点上，
+而`Taints`恰好与之相反，如果一个节点标记为 Taints ，除非 Pod 也被标识为可以容忍污点节点，否则该 Taints 节点不会被调度Pod。
+
+> nodeAffinity，默认我的节点是可调度的
+> Taints，默认我的节点是不可调度的，只有满足某些条件，才能调度
 
 Taints(污点)是Node的一个属性，设置了Taints(污点)后，因为有了污点，所以Kubernetes是不会将Pod调度到这个Node上的。于是Kubernetes就给Pod设置了个属性Tolerations(容忍)，只要Pod能够容忍Node上的污点，那么Kubernetes就会忽略Node上的污点，就能够(不是必须)把Pod调度过去。
 
-场景一：私有云服务中，某业务使用GPU进行大规模并行计算。为保证性能，希望确保该业务对服务器的专属性，避免将普通业务调度到部署GPU的服务器。
+Taints ---> Node
+Tolerations  -----> pod
 
-场景二：用户希望把 Master 节点保留给 Kubernetes 系统组件使用，或者把一组具有特殊资源预留给某些 Pod，则污点就很有用了，Pod 不会再被调度到 taint 标记过的节点。taint 标记节点举例如下：
+>  场景一：私有云服务中，某业务`使用GPU进行大规模并行计算`。为保证性能，希望确保该业务对服务器的专属性，`避免将普通业务调度到部署GPU的服务器`。
+
+> 场景二：用户希望`把 Master 节点保留给 Kubernetes 系统组件`使用，或者把`一组具有特殊资源预留给某些 Pod`，则污点就很有用了，Pod 不会再被调度到 taint 标记过的节点。taint 标记节点举例如下：
 
 设置污点：
 
@@ -328,7 +465,8 @@ $ kubectl taint node [node_name] key=value:[effect]
 ```powershell
 去除指定key及其effect：
      kubectl taint nodes [node_name] key:[effect]-    #这里的key不用指定value
-                
+     kubectl taint node k8s-master smoke-
+     
  去除指定key所有的effect: 
      kubectl taint nodes node_name key-
  
@@ -348,14 +486,14 @@ $ kubectl taint node k8s-slave1 drunk=true:NoSchedule
 $ kubectl taint node k8s-slave2 smoke=true:NoSchedule
 
 
-
 ## 扩容myblog的Pod，观察新Pod的调度情况
 $ kuebctl -n luffy scale deploy myblog --replicas=3
 $ kubectl -n luffy get po -w    ## pending
+myblog-7f6d7ff58c-rkc8n     0/1     Pending            0          33s   <none>        <none>       <none>           <none>
 
 ```
 
-
+![image-20210718105043560](第三天 Kubernetes进阶实践.assets/image-20210718105043560.png)
 
 Pod容忍污点示例：`myblog/deployment/deploy-myblog-taint.yaml`
 
@@ -372,6 +510,7 @@ spec:
         effect: "NoSchedule"
       - key: "drunk" 
         operator: "Exists"  #如果操作符为Exists，那么value属性可省略,不指定operator，默认为Equal
+        
 	  #意思是这个Pod要容忍的有污点的Node的key是smoke Equal true,效果是NoSchedule，
       #tolerations属性下各值必须使用引号，容忍的值都是设置Node的taints时给的值。
 ```
@@ -379,6 +518,28 @@ spec:
 ```powershell
 $ kubectl apply -f deploy-myblog-taint.yaml
 ```
+
+
+实践验证2
+
+修改deployment
+
+```
+ [root@k8s-master week03]# kubectl -n luffy edit deployments.apps myblog
+    spec:
+      tolerations: 
+      - key: "drunk"  
+        operator: "Exists"  
+      containers:
+```
+
+rollingupdate滚动更新，重新调度
+
+![image-20210718105105676](第三天 Kubernetes进阶实践.assets/image-20210718105105676.png)
+
+
+
+最简单的，适应能力最强的，三个节点都可以调度
 
 ```powershell
 spec:
@@ -389,16 +550,88 @@ spec:
         - operator: "Exists"
 ```
 
->  NoExecute
 
 
 
-###### Cordon
+
+- NoExecute
+
+>  NoExecute：不仅不会调度，还会驱逐Node上已有的Pod
+
+
+
+```shell
+# 删除node上的污点
+kubectl taint node k8s-master gamble-
+kubectl taint node k8s-slave1  drunk-
+kubectl taint node k8s-slave2 smoke-
+
+# 驱逐了slave1里面的所有pod
+[root@k8s-master week03]# kubectl taint node k8s-slave1 smoke=true:NoExecute
+node/k8s-slave1 tainted
+[root@k8s-master week03]# kubectl -n luffy get po -owide
+
+# kube-system里面的pod也被驱逐了
+
+# kube-proxy却没有被驱逐，添加了 容忍
+[root@k8s-master week03]# kubectl -n kube-system get po kube-proxy-hrjct -oyaml |grep -n5 -i tole
+221:  tolerations:
+222-  - key: CriticalAddonsOnly
+223-    operator: Exists
+224-  - operator: Exists
+225-  - effect: NoExecute
+226-    key: node.kubernetes.io/not-ready
+ 
+```
+
+pod驱逐策略，第二天的内容。
+
+`tolerationSeconds`容忍pod300s，网络节点不稳定
+
+
+
+
+
+Cordon：不可调度的，设置node为不可调度的
+uncordon：可调度的
 
 ```powershell
-$ kubectl cordon k8s-slave2
-$ kubectl drain k8s-slave2
+[root@k8s-master week03]#  kubectl |grep cordon
+  cordon        Mark node as unschedulable
+  uncordon      Mark node as schedulable
+
+# 设置slave2为不可调度
+[root@k8s-master week03]# kubectl cordon k8s-slave2
+node/k8s-slave2 cordoned
+[root@k8s-master week03]# kubectl get no
+NAME         STATUS                     ROLES    AGE   VERSION
+k8s-master   Ready                      master   26h   v1.19.8
+k8s-slave1   Ready                      <none>   26h   v1.19.8
+k8s-slave2   Ready,SchedulingDisabled   <none>   26h   v1.19.8
+
+# 基于taint base的，查看污点
+[root@k8s-master week03]# kubectl describe node k8s-slave2  |grep -i taint
+Taints:             node.kubernetes.io/unschedulable:NoSchedule
+
+# 取消设置
+$ kubectl uncordon k8s-slave2
 ```
+
+
+
+drain   准备维护该节点
+
+先设置为不可调度，驱逐pod
+
+```shell
+
+$ kubectl drain k8s-slave2
+
+# 取消设置
+$ kubectl uncordon k8s-slave2
+```
+
+
 
 
 
@@ -408,21 +641,27 @@ $ kubectl drain k8s-slave2
 
 ##### CNI介绍及集群网络选型
 
-容器网络接口（Container Network Interface），实现kubernetes集群的Pod网络通信及管理。包括：
+`容器网络接口（Container Network Interface）`，实现kubernetes集群的Pod网络通信及管理。
+
+`解决k8s容器内部之间的通信`
+
+包括：
 
 - CNI Plugin负责给容器配置网络，它包括两个基本的接口：
   配置网络: AddNetwork(net NetworkConfig, rt RuntimeConf) (types.Result, error)
   清理网络: DelNetwork(net NetworkConfig, rt RuntimeConf) error
 - IPAM Plugin负责给容器分配IP地址，主要实现包括host-local和dhcp。
 
-以上两种插件的支持，使得k8s的网络可以支持各式各样的管理模式，当前在业界也出现了大量的支持方案，其中比较流行的比如flannel、calico等。
+以上两种插件的支持，使得k8s的网络可以支持各式各样的管理模式，当前在业界也出现了大量的支持方案，其中比较流行的，`比如flannel、calico`等。
 
 kubernetes配置了cni网络插件后，其容器网络创建流程为：
 
-- kubelet先创建pause容器生成对应的network namespace
-- 调用网络driver，因为配置的是CNI，所以会调用CNI相关代码，识别CNI的配置目录为/etc/cni/net.d
-- CNI driver根据配置调用具体的CNI插件，二进制调用，可执行文件目录为/opt/cni/bin,[项目](https://github.com/containernetworking/plugins)
-- CNI插件给pause容器配置正确的网络，pod中其他的容器都是用pause的网络
+ > - kubelet先创建pause容器生成对应的network namespace
+  > - 调用网络driver，因为配置的是CNI，所以会调用CNI相关代码，识别CNI的配置目录为/etc/cni/net.d
+  > - CNI driver根据配置调用具体的CNI插件，二进制调用，可执行文件目录为/opt/cni/bin,[项目](https://github.com/containernetworking/plugins)
+  > - CNI插件给pause容器配置正确的网络，pod中其他的容器都是用pause的网络
+
+  
 
  可以在此查看社区中的CNI实现，https://github.com/containernetworking/cni 
 
@@ -434,16 +673,28 @@ kubernetes配置了cni网络插件后，其容器网络创建流程为：
 - 私有云厂商，比如Vmware NSX-T等
 - 网络性能等，MacVlan
 
+```shell
+#查看cni
+[root@k8s-master week03]# ps aux |grep kubelet |grep cni
+root       1052  4.9  3.3 1809200 68692 ?       Ssl  Jul17  17:35 /usr/bin/kubelet --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --config=/var/lib/kubelet/config.yaml --network-plugin=cni --pod-infra-container-image=registry.aliyuncs.com/google_containers/pause:3.2
+[root@k8s-master week03]# 
+[root@k8s-master week03]# cat /etc/cni/net.d/10-flannel.conflist 
+```
+
+
+
+
+
 ##### Flannel网络模型实现剖析
 
 flannel的网络有多种实现：
 
-- udp
-- vxlan
+- udp，废弃
+- vxlan，默认
 - host-gw
 - ...
 
-不特殊指定的话，默认会使用vxlan技术作为Backend，可以通过如下查看：
+不特殊指定的话，默认会使用`vxlan技术作为Backend`，可以通过如下查看：
 
 ```powershell
 $ kubectl -n kube-system exec  kube-flannel-ds-amd64-cb7hs cat /etc/kube-flannel/net-conf.json
@@ -458,23 +709,30 @@ $ kubectl -n kube-system exec  kube-flannel-ds-amd64-cb7hs cat /etc/kube-flannel
 
 ###### vxlan介绍及点对点通信的实现
 
-VXLAN 全称是虚拟可扩展的局域网（ Virtual eXtensible Local Area Network），它是一种 overlay 技术，通过三层的网络来搭建虚拟的二层网络。
+VXLAN 全称是`虚拟可扩展的局域网`（ Virtual eXtensible Local Area Network），它是一种` overlay 技术`。
+`通过三层的网络来搭建虚拟的二层网络。`
 
 ![](images/vxlan.png)
 
 它创建在原来的 IP 网络（三层）上，只要是三层可达（能够通过 IP 互相通信）的网络就能部署 vxlan。在每个端点上都有一个 vtep 负责 vxlan 协议报文的封包和解包，也就是在虚拟报文上封装 vtep 通信的报文头部。物理网络上可以创建多个 vxlan 网络，这些 vxlan 网络可以认为是一个隧道，不同节点的虚拟机能够通过隧道直连。每个 vxlan 网络由唯一的 VNI 标识，不同的 vxlan 可以不相互影响。 
 
-- VTEP（VXLAN Tunnel Endpoints）：vxlan 网络的边缘设备，用来进行 vxlan 报文的处理（封包和解包）。vtep 可以是网络设备（比如交换机），也可以是一台机器（比如虚拟化集群中的宿主机）
-- VNI（VXLAN Network Identifier）：VNI 是每个 vxlan 的标识，一共有 2^24 = 16,777,216，一般每个 VNI 对应一个租户，也就是说使用 vxlan 搭建的公有云可以理论上可以支撑千万级别的租户
+- VTEP（VXLAN Tunnel Endpoints）：`vxlan 网络的边缘设备,隧道的两端`，用来进行 vxlan 报文的处理（封包和解包）。vtep 可以是网络设备（比如交换机），也可以是一台机器（比如虚拟化集群中的宿主机）
+- VNI（VXLAN Network Identifier）：`VNI 是每个 vxlan 的标识`，一共有 2^24 = 16,777,216，一般每个 VNI 对应一个租户，也就是说使用 vxlan 搭建的公有云可以理论上可以支撑千万级别的租户
 
-演示：在k8s-slave1和k8s-slave2两台机器间，利用vxlan的点对点能力，实现虚拟二层网络的通信
+![image-20210718145446316](第三天 Kubernetes进阶实践.assets/image-20210718145446316.png)
+
+
+
+- 演示 vxlan的基本作用和原理
+
+> 在k8s-slave1和k8s-slave2两台机器间，利用vxlan的点对点能力，实现虚拟二层网络的通信
 
 ![](images/vxlan-p2p-1.jpg)
 
 `172.21.51.55`节点：
 
 ```powershell
-# 创建vTEP设备，对端指向172.21.52.84节点，指定VNI及underlay网络使用的网卡
+# 创建vTEP设备，对端指向172.21.52.84节点，指定VNI及underlay网络使用的网卡eth0
 $ ip link add vxlan20 type vxlan id 20 remote 172.21.52.84 dstport 4789 dev eth0
 
 $ ip -d link show vxlan20
@@ -505,28 +763,33 @@ $ ip addr add 10.0.52.84/24 dev vxlan20
 
 
 
-在`172.21.51.55`节点：
+ping是否通，查看路由规则在`172.21.51.55`节点：
 
 ```powershell
 $ ping 10.0.52.84
 
-# 走vtep封包解包
+# 走vtep封包解包,还是走的eth0
+route -n
 
+# 添加转发规则，由vxlan20转发
 $ ip route add 10.0.52.0/24 dev vxlan20
 
 # 在172.21.52.84机器
 $ ip route add 10.0.51.0/24 dev vxlan20
 
-# 再次ping
+# 再次ping，都可以通了
 $ ping 10.0.52.84
 
-# 
+# 抓包
 $ tcpdump -i vxlan20 icmp
 ```
 
-
+用vxlan的点对点能力，构建虚拟二层网络（vxlan虚拟网卡），打通路由链路，然后通信
+而不是走三层的网络通信(eth0)
 
 ![](images\vxlan-p2p-2.jpg)
+
+
 
 
 
@@ -567,9 +830,9 @@ $ ping 10.0.52.84
 
 使用wireshark分析ICMP类型的数据包
 
+![image-20210718160638083](第三天 Kubernetes进阶实践.assets/image-20210718160638083.png)
 
-
-清理：
+清理： 
 
 ```powershell
 $ ip link del vxlan20
@@ -581,9 +844,9 @@ $ ip link del vxlan20
 
 ![](images/vxlan-docker-1.jpg)
 
-思考：容器网络模式下，vxlan设备该接在哪里？
+思考：·`容器网络模式下，vxlan设备该接在哪里？`
 
-基本的保证：目的容器的流量要通过vtep设备进行转发！
+基本的保证：目的容器的流量要通过vtep设备 进行转发！
 
 ![](images/vxlan-docker-mul.jpg)
 
@@ -600,11 +863,15 @@ $ ip link del vxlan20
 # 创建新网桥，指定cidr段
 $ docker network create --subnet 172.18.1.0/24  network-luffy
 
+
 # 查看网桥
 $ brctl show
+$ docker network ls
+
 # 新建容器，接入到新网桥
 $ docker run -d --name vxlan-test --net network-luffy --ip 172.18.1.2 nginx:alpine
 
+# 查看容器ip
 $ docker exec vxlan-test ifconfig
 
 ```
@@ -622,16 +889,18 @@ $ docker run -d --name vxlan-test --net network-luffy --ip 172.18.2.2 nginx:alpi
 
 
 
-此时执行ping测试：
+此时执行ping测试，不通
 
 ```powershell
 $ docker exec vxlan-test ping 172.18.2.2
 
 ```
 
+分析：数据到了网桥后，出不去。
 
 
-分析：数据到了网桥后，出不去。结合前面的示例，因此应该将流量由vtep设备转发，联想到网桥的特性，接入到桥中的端口，会由网桥负责转发数据，因此，相当于所有容器发出的数据都会经过到vxlan的端口，vxlan将流量转到对端的vtep端点，再次由网桥负责转到容器中。
+
+结合前面的示例，因此应该将流量由vtep设备转发，联想到网桥的特性，接入到桥中的端口，会由网桥负责转发数据，因此，相当于所有容器发出的数据都会经过到vxlan的端口，vxlan将流量转到对端的vtep端点，再次由网桥负责转到容器中。
 
 ![](images/vxlan-docker-mul-all.jpg)
 
@@ -648,8 +917,22 @@ $ ip link set vxlan_docker up
 
 $ brctl show
 br-0fdb78d3b486         8000.02421452871b       no              vethfffdd2f
-# 接入到网桥中
+
+# vxlan_docker接入到网桥中
 $ brctl addif br-0fdb78d3b486 vxlan_docker
+
+# 添加路由规则
+
+[root@k8s-slave1 ~]# ip route add 172.18.2.0/24 dev br-399f72a72300
+[root@k8s-slave1 ~]# route -n
+Kernel IP routing table
+Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+0.0.0.0         192.168.150.2   0.0.0.0         UG    100    0        0 ens33
+10.240.1.0      0.0.0.0         255.255.255.0   U     0      0        0 cni0
+172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
+172.18.1.0      0.0.0.0         255.255.255.0   U     0      0        0 br-399f72a72300
+172.18.2.0      0.0.0.0         255.255.255.0   U     0      0        0 br-399f72a72300
+192.168.150.0   0.0.0.0         255.255.255.0   U     100    0        0 ens33
 
 ```
 
@@ -663,18 +946,37 @@ $ ip link del vxlan20
 
 # 新建vtep
 $ ip link add vxlan_docker type vxlan id 100 remote 172.21.51.55 dstport 4789 dev eth0
+
 $ ip link set vxlan_docker up
 # 不用设置ip，因为目标是可以转发容器的数据即可
 
 # 接入到网桥中
-$ brctl show
 $ brctl addif br-c6660fe2dc53 vxlan_docker
+
+$ brctl show
+[root@k8s-slave2 ~]# brctl show
+bridge name	bridge id		STP enabled	interfaces
+br-c3d6d2db8d88		8000.0242f91d6677	no		veth2c9986c
+							vxlan_docker
+							
+# route 
+[root@k8s-slave2 ~]# ip route add 172.18.1.0/24 dev br-c3d6d2db8d88
+[root@k8s-slave2 ~]# 
+[root@k8s-slave2 ~]# route -n
+Kernel IP routing table
+Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+0.0.0.0         192.168.150.2   0.0.0.0         UG    100    0        0 ens33
+10.240.2.0      0.0.0.0         255.255.255.0   U     0      0        0 cni0
+172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
+172.18.1.0      0.0.0.0         255.255.255.0   U     0      0        0 br-c3d6d2db8d88
+172.18.2.0      0.0.0.0         255.255.255.0   U     0      0        0 br-c3d6d2db8d88
+192.168.150.0   0.0.0.0         255.255.255.0   U     100    0        0 ens33
 
 ```
 
 
 
-再次执行ping测试：
+再次执行ping测试
 
 ```powershell
 $ docker exec vxlan-test ping 172.18.2.2
@@ -682,13 +984,13 @@ $ docker exec vxlan-test ping 172.18.2.2
 
 
 
-###### Flannel的vxlan实现精讲
+###### Flannel的vxlan实现精讲（重点）
 
-思考：k8s集群的网络环境和手动实现的跨主机的容器通信有哪些差别？
+思考：`k8s集群的网络环境`和`手动实现的跨主机的容器通信`有哪些差别？
 
-1. CNI要求，集群中的每个Pod都必须分配唯一的Pod IP
-2. k8s集群内的通信不是vxlan点对点通信，因为集群内的所有节点之间都需要互联
-   - 没法创建点对点的vxlan模型
+> 1. CNI要求，集群中的`每个Pod`都必须分配`唯一的Pod IP`
+> 2. k8s集群内的通信`不是vxlan点对点通信`，因为集群内的`所有节点之间都需要互联`
+>    - 没法创建点对点的vxlan模型
 
 
 
@@ -714,19 +1016,35 @@ myblog-5d9ff54d4b-4rftt   1/1     Running   1          33h     10.244.2.19   k8s
 myblog-5d9ff54d4b-n447p   1/1     Running   1          33h     10.244.1.32   k8s-slave1
 
 #查看k8s-slave1主机分配的地址段
+# 文件是flannel生成的
 $ cat /run/flannel/subnet.env
-FLANNEL_NETWORK=10.244.0.0/16
-FLANNEL_SUBNET=10.244.1.1/24
+FLANNEL_NETWORK=10.244.0.0/16   # 在yaml中配置的
+FLANNEL_SUBNET=10.244.1.1/24   # 保证每个pod的ip不一样！！！但是k8s如何分配的呢?
 FLANNEL_MTU=1450
 FLANNEL_IPMASQ=true
+```
+
+> flannel`通过k8s api`，取到每个`node下存的PodCIDR`的，不是存在ETCD中的，然后生成上面的文件
+> flannel有获取nodes节点信息的权限的
+
+```shell
+[root@k8s-master ~]# kubectl describe node k8s-slave |grep -i cidr
+PodCIDR:                      10.240.1.0/24
+PodCIDRs:                     10.240.1.0/24
+
+# flannel通过k8s api取值的，存在该参数--kube-subnet-mgr
+[root@k8s-master ~]# ps aux |grep flannel
+root       7402  0.1  1.0 1343456 21596 ?       Ssl  Jul17   0:43 /opt/bin/flanneld --ip-masq --kube-subnet-mgr --iface=ens33
+root     116113  0.0  0.0 112816   968 pts/2    S+   05:10   0:00 grep --color=auto flannel
 
 # kubelet启动容器的时候就可以按照本机的网段配置来为pod设置IP地址
-
 ```
 
 
 
 vtep的设备在哪：
+
+流量走vtep设备进行转发
 
 ```powershell
 $ ip -d link show flannel.1
@@ -761,7 +1079,7 @@ vtep封包的时候，如何拿到目的vetp端的IP及MAC信息
 
 
 
-演示跨主机Pod通信的流量详细过程：
+演示跨主机Pod通信的流量详细过程`多播`：
 
 ```powershell
 $ kubectl -n luffy get po -o wide
@@ -773,32 +1091,33 @@ PING 10.244.2.19 (10.244.2.19) 56(84) bytes of data.
 64 bytes from 10.244.2.19: icmp_seq=1 ttl=62 time=0.480 ms
 64 bytes from 10.244.2.19: icmp_seq=2 ttl=62 time=1.44 ms
 
---- 10.244.2.19 ping statistics ---
-2 packets transmitted, 2 received, 0% packet loss, time 1001ms
-rtt min/avg/max/mdev = 0.480/0.961/1.443/0.482 ms
 
+！！！！ 重点
 # 查看路由
+# G 走的是宿主机网络路由， 没有G是直连的二层
 $ kubectl -n luffy exec myblog-5d9ff54d4b-n447p -- route -n
 Kernel IP routing table
 Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
-0.0.0.0         10.244.1.1      0.0.0.0         UG    0      0        0 eth0
-10.244.0.0      10.244.1.1      255.255.0.0     UG    0      0        0 eth0
-10.244.1.0      0.0.0.0         255.255.255.0   U     0      0        0 eth0
+0.0.0.0         10.244.1.1      0.0.0.0         UG    0      0        0 eth0 # 访问外网的规则
+10.244.0.0      10.244.1.1      255.255.0.0     UG    0      0        0 eth0 # 走宿主机网络的网桥cni0，访问除了本机的，flannel的其他网桥
+10.244.1.0      0.0.0.0         255.255.255.0   U     0      0        0 eth0 # 访问本机的服务，本机的cni0
 
-# 查看k8s-slave1 的veth pair 和网桥
+# 查看k8s-slave1 的veth pair 和新的网桥 cni0
 $ brctl show
 bridge name     bridge id               STP enabled     interfaces
 cni0            8000.6a9a0b341d88       no              veth048cc253
                                                         veth76f8e4ce
                                                         vetha4c972e1
+docker0		8000.02421587bebb	no		veth4cfa483
+
 # 流量到了cni0后，查看slave1节点的route
 $ route -n
 Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 0.0.0.0         192.168.136.2   0.0.0.0         UG    100    0        0 eth0
 10.0.136.0      0.0.0.0         255.255.255.0   U     0      0        0 vxlan20
-10.244.0.0      10.244.0.0      255.255.255.0   UG    0      0        0 flannel.1
-10.244.1.0      0.0.0.0         255.255.255.0   U     0      0        0 cni0
-10.244.2.0      10.244.2.0      255.255.255.0   UG    0      0        0 flannel.1
+10.244.0.0      10.244.0.0      255.255.255.0   UG    0      0        0 flannel.1 
+10.244.1.0      0.0.0.0         255.255.255.0   U     0      0        0 cni0   # 进
+10.244.2.0      10.244.2.0      255.255.255.0   UG    0      0        0 flannel.1  # 出
 172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
 192.168.136.0   0.0.0.0         255.255.255.0   U     100    0        0 eth0
 
@@ -809,6 +1128,7 @@ $ ip -d link show flannel.1
     vxlan id 1 local 172.21.51.68 dev eth0 srcport 0 0 dstport 8472 nolearning ageing 300 noudpcsum noudp6zerocsumtx noudp6zerocsumrx addrgenmode eui64 numtxqueues 1 numrxqueues 1 gso_max_size 65536 gso_max_segs 65535
 
 # 该转发到哪里，通过etcd查询数据，然后本地缓存，流量不用走多播发送
+# # flannel能拿到 k8s的node列表，不是点对点的，多播
 $ bridge fdb show dev flannel.1
 4a:4d:9d:3a:c5:f0 dst 172.21.51.68 self permanent
 76:e7:98:9f:5b:e9 dst 172.21.51.67 self permanent
@@ -825,9 +1145,15 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 172.21.0.0      0.0.0.0         255.255.0.0     U     0      0        0 eth0
 
 #根据路由规则转发到cni0网桥,然后由网桥转到具体的Pod中
-
-
 ```
+
+> 1. 流量一定走vtep设备
+>
+>    brctl show
+>
+> 2. flannel走路由表
+
+
 
 实际的请求图：
 
@@ -843,9 +1169,48 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 - 解封装后的 IP 包匹配节点 k8s-slave2 当中的路由表（10.244.2.0），内核将 IP 包转发给`cni0`
 - `cni0`将 IP 包转发给连接在 `cni0` 上的 pod-b
 
+
+
+总结：
+
+`flannle的三个作用`
+
+![image-20210718180936954](第三天 Kubernetes进阶实践.assets/image-20210718180936954.png)
+
+- vtep设备，是vxlan需要的
+
+- vtep需要转发给谁？怎么知道呢？flannel告诉它的
+
+ ```shell
+ [root@k8s-slave1 ~]# bridge fdb show dev flannel.1
+ aa:d0:64:ab:2b:c7 dst 192.168.150.128 self permanent
+ e6:24:c0:63:11:02 dst 192.168.150.128 self permanent
+ e6:6e:eb:5e:0b:47 dst 192.168.150.132 self permanent
+ ```
+
+​	flanneld 可以通过k8s api 拿到node的信息
+
+- 维护节点路由表
+
+```shell
+[root@k8s-slave1 ~]# route -n
+Kernel IP routing table
+Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+0.0.0.0         192.168.150.2   0.0.0.0         UG    100    0        0 ens33
+10.240.1.0      0.0.0.0         255.255.255.0   U     0      0        0 cni0
+172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
+172.18.1.0      0.0.0.0         255.255.255.0   U     0      0        0 br-399f72a72300
+172.18.2.0      0.0.0.0         255.255.255.0   U     0      0        0 br-399f72a72300
+192.168.150.0   0.0.0.0         255.255.255.0   U     100    0        0 ens33
+```
+
+
+
+
+
 ###### 利用host-gw模式提升集群网络性能
 
-vxlan模式适用于三层可达的网络环境，对集群的网络要求很宽松，但是同时由于会通过VTEP设备进行额外封包和解包，因此给性能带来了额外的开销。
+`vxlan模式`适用于三层可达的网络环境，对集群的网络要求很宽松，但是同时由于会`通过VTEP设备进行额外封包和解包`，因此`给性能带来了额外的开销`。
 
 网络插件的目的其实就是将本机的cni0网桥的流量送到目的主机的cni0网桥。实际上有很多集群是部署在同一二层网络环境下的，可以直接利用二层的主机当作流量转发的网关。这样的话，可以不用进行封包解包，直接通过路由表去转发流量。
 
@@ -881,6 +1246,7 @@ kind: ConfigMap
 重建Flannel的Pod
 
 ```powershell
+# 删除flannel的pod
 $ kubectl -n kube-system get po |grep flannel
 kube-flannel-ds-amd64-5dgb8          1/1     Running   0          15m
 kube-flannel-ds-amd64-c2gdc          1/1     Running   0          14m
@@ -928,7 +1294,7 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
 ![](images/k8s-apiserver-access-control-overview.svg)
 
-- Authentication：身份认证
+- Authentication：身份认证 （你可以进公司大楼）
 
   1. 这个环节它面对的输入是整个`http request`，负责对来自client的请求进行身份校验，支持的方法包括:
 
@@ -942,9 +1308,16 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
   3. 使用kubeadm引导启动的k8s集群，apiserver的初始配置中，默认支持`client证书`验证和`serviceaccount`两种身份验证方式。 证书认证通过设置`--client-ca-file`根证书以及`--tls-cert-file`和`--tls-private-key-file`来开启。
 
+     ```
+     # 是否开启
+     [root@k8s-master ~]# ps aux |grep client-ca-file
+     ```
+
+     
+
   4. 在这个环节，apiserver会通过client证书或 `http header`中的字段(比如serviceaccount的`jwt token`)来识别出请求的`用户身份`，包括”user”、”group”等，这些信息将在后面的`authorization`环节用到。
 
-- Authorization：鉴权，你可以访问哪些资源
+- Authorization：鉴权，你可以访问哪些资源 （你可以进哪个房间 ）
 
   1. 这个环节面对的输入是`http request context`中的各种属性，包括：`user`、`group`、`request path`（比如：`/api/v1`、`/healthz`、`/version`等）、 `request verb`(比如：`get`、`list`、`create`等)。
 
@@ -962,11 +1335,12 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
   - 举个栗子
 
-    - 以NamespaceLifecycle为例， 该插件确保处于Termination状态的Namespace不再接收新的对象创建请求，并拒绝请求不存在的Namespace。该插件还可以防止删除系统保留的Namespace:default，kube-system，kube-public
+    - 以NamespaceLifecycle为例， 该插件确保处于Termination状态的Namespace不再接收新的对象创建请求，并拒绝请求不存在的Namespace。`该插件还可以防止删除系统保留的Namespace:default，kube-system，kube-public`
 
-    - LimitRanger，若集群的命名空间设置了LimitRange对象，若Pod声明时未设置资源值，则按照LimitRange的定义来未Pod添加默认值
+    - LimitRanger，若集群的命名空间设置了LimitRange对象，若Pod声明时未设置资源值，则`按照LimitRange的定义来未Pod添加默认值`，资源管理限制
 
       ```yaml
+      # lm.yaml
       apiVersion: v1
       kind: LimitRange
       metadata:
@@ -979,7 +1353,8 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
           defaultRequest:
             memory: 256Mi
           type: Container
-      ---
+      
+      # demo-pod.yaml
       apiVersion: v1
       kind: Pod
       metadata:
@@ -993,7 +1368,12 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
       ```
   
     ```powershell
+    # 创建namespace
+    $ kubectl create ns demo
     $ kubectl apply -f .
+    
+    # 查看pod已经添加limit-range限制
+    [root@k8s-master week03]# kubectl -n demo get pod default-mem-demo -oyaml
     ```
   
     
@@ -1068,7 +1448,7 @@ $ echo xxxxxxxxxxxxxx |base64 -d > kubectl.crt
 
 ```
 
-说明在认证阶段，`apiserver`会首先使用`--client-ca-file`配置的CA证书去验证kubectl提供的证书的有效性,基本的方式 ：
+说明在认证阶段，`apiserver`会首先使用`--client-ca-file`配置的CA证书，去验证kubectl提供的证书的有效性,基本的方式 ：
 
 ```powershell
 $  openssl verify -CAfile /etc/kubernetes/pki/ca.crt kubectl.crt
@@ -1091,9 +1471,6 @@ Certificate:
             Not After : Feb  9 07:33:40 2021 GMT
         Subject: O=system:masters, CN=kubernetes-admin
         ...
-
-
-
 ```
 
 认证通过后，提取出签发证书时指定的CN(Common Name),`kubernetes-admin`，作为请求的用户名 (User Name), 从证书中提取O(Organization)字段作为请求用户所属的组 (Group)，`group = system:masters`，然后传递给后面的授权模块。
@@ -1146,6 +1523,44 @@ PolicyRule:
 
 ![](images/how-kubectl-be-authorized.png)
 
+```shell
+# 查看所有的clusterrole
+[root@k8s-master ~]# kubectl get clusterrole
+
+# 查看cluster-admin的配置权限
+[root@k8s-master ~]# kubectl get clusterrole cluster-admin -oyaml
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+- nonResourceURLs:
+  - '*'
+  verbs:
+  - '*'
+
+
+# 查看所有的clusterrolebinding
+[root@k8s-master ~]# kubectl get clusterrolebindings.rbac.authorization.k8s.io
+
+# 查看cluser-admin的配置权限
+[root@k8s-master ~]# kubectl get clusterrolebindings.rbac.authorization.k8s.io   cluster-admin -oyaml
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:masters
+
+# config文件不能随意给别人，在k8s权限认证源码里，对system:masters开了后门
+```
+
+
+
 
 
 ###### RBAC
@@ -1156,12 +1571,12 @@ Role-Based Access Control，基于角色的访问控制， apiserver启动参数
 
 ```powershell
 # master节点查看apiserver进程
-$ ps aux |grep apiserver
-
-
+$ ps aux |grep apiserver 
 ```
 
 RBAC模式引入了4个资源类型：
+
+> k8s里面的权限：用户或组，能访问哪些命名空间里面的哪些资源
 
 - Role，角色
 
@@ -1189,7 +1604,9 @@ RBAC模式引入了4个资源类型：
 
 - ClusterRole
 
-  一个ClusterRole能够授予和Role一样的权限，但是它是集群范围内的。 
+  一个ClusterRole能够授予和Role一样的权限，`但是它是集群范围内的。 `
+
+  
 
   ```yaml
   ## 定义一个集群角色，名为secret-reader，该角色可以读取所有的namespace中的secret资源
@@ -1258,11 +1675,11 @@ RBAC模式引入了4个资源类型：
   
   ```
 
-  考虑一个场景：  如果集群中有多个namespace分配给不同的管理员，每个namespace的权限是一样的，就可以只定义一个clusterrole，然后通过rolebinding将不同的namespace绑定到管理员身上，否则就需要每个namespace定义一个Role，然后做一次rolebinding。
+  考虑一个场景：  如果`集群中有多个namespace分配给不同的管理员，每个namespace的权限是一样的`，就可以只定义一个clusterrole，然后通过rolebinding将不同的namespace绑定到管理员身上，否则就需要每个namespace定义一个Role，然后做一次rolebinding。
 
 - ClusterRolebingding
 
-  允许跨namespace进行授权
+  `允许跨namespace进行授权`
 
   ```yaml
   apiVersion: rbac.authorization.k8s.io/v1
@@ -1321,16 +1738,12 @@ Certificate:
             Not Before: Feb 10 07:33:39 2020 GMT
             Not After : Feb  9 07:33:40 2021 GMT
         Subject: O=system:nodes, CN=system:node:master-1
-
-
-
 ```
 
-得到我们期望的内容：
+通过openssl解析，得到我们期望的内容：
 
 ```bash
 Subject: O=system:nodes, CN=system:node:k8s-master
-
 ```
 
 我们知道，k8s会把O作为Group来进行请求，因此如果有权限绑定给这个组，肯定在clusterrolebinding的定义中可以找得到。因此尝试去找一下绑定了system:nodes组的clusterrolebinding
@@ -1360,6 +1773,7 @@ $ kubectl get clusterrolebinding -oyaml|grep -n10 system:nodes
 198-          f:apiGroup: {}
 
 $ kubectl describe clusterrole system:certificates.k8s.io:certificatesigningrequests:selfnodeclient
+------
 Name:         system:certificates.k8s.io:certificatesigningrequests:selfnodeclient
 Labels:       kubernetes.io/bootstrapping=rbac-defaults
 Annotations:  rbac.authorization.kubernetes.io/autoupdate: true
@@ -1370,25 +1784,30 @@ PolicyRule:
 
 ```
 
- 结局有点意外，除了`system:certificates.k8s.io:certificatesigningrequests:selfnodeclient`外，没有找到system相关的rolebindings，显然和我们的理解不一样。 尝试去找[资料](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#core-component-roles)，发现了这么一段 :
+ 结局有点意外，kubelet没有走RABC权限认证
+
+
+
+除了`system:certificates.k8s.io:certificatesigningrequests:selfnodeclient`外，没有找到system相关的rolebindings，显然和我们的理解不一样。 尝试去找[资料](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#core-component-roles)，发现了这么一段 :
 
 | Default ClusterRole            | Default ClusterRoleBinding          | Description                                                  |
 | :----------------------------- | :---------------------------------- | :----------------------------------------------------------- |
 | system:kube-scheduler          | system:kube-scheduler user          | Allows access to the resources required by the [scheduler](https://kubernetes.io/docs/reference/generated/kube-scheduler/)component. |
 | system:volume-scheduler        | system:kube-scheduler user          | Allows access to the volume resources required by the kube-scheduler component. |
 | system:kube-controller-manager | system:kube-controller-manager user | Allows access to the resources required by the [controller manager](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-controller-manager/) component. The permissions required by individual controllers are detailed in the [controller roles](https://kubernetes.io/docs/reference/access-authn-authz/rbac/#controller-roles). |
-| system:node                    | None                                | Allows access to resources required by the kubelet, **including read access to all secrets, and write access to all pod status objects**. You should use the [Node authorizer](https://kubernetes.io/docs/reference/access-authn-authz/node/) and [NodeRestriction admission plugin](https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/#noderestriction) instead of the `system:node` role, and allow granting API access to kubelets based on the Pods scheduled to run on them. The `system:node` role only exists for compatibility with Kubernetes clusters upgraded from versions prior to v1.8. |
+| system:node                    | None                                | Allows access to resources required by the kubelet, **including read access to all secrets, and write access to all pod status objects**. You should use the [Node authorizer](https://kubernetes.io/docs/reference/access-authn-authz/node/) and [NodeRestriction admission plugin](https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/#noderestriction) instead of the `system:node` role, and allow granting API access to kubelets based on the Pods scheduled to run on them. The `system:node` role only exists for compatibility with Kubernetes clusters upgraded from versions prior to v1.8. <br /><br />你应该使用 [Node 鉴权组件](https://kubernetes.io/zh/docs/reference/access-authn-authz/node/) 和 [NodeRestriction 准入插件](https://kubernetes.io/zh/docs/reference/access-authn-authz/admission-controllers/#noderestriction) 而不是 `system:node` 角色<br />`system:node` 角色的意义仅是为了与从 v1.8 之前版本升级而来的集群兼容。 |
 | system:node-proxier            | system:kube-proxy user              | Allows access to the resources required by the [kube-proxy](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-proxy/)component. |
 
-大致意思是说：之前会定义system:node这个角色，目的是为了kubelet可以访问到必要的资源，包括所有secret的读权限及更新pod状态的写权限。如果1.8版本后，是建议使用 [Node authorizer](https://kubernetes.io/docs/reference/access-authn-authz/node/) and [NodeRestriction admission plugin](https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/#noderestriction) 来代替这个角色的。
+大致意思是说：
+
+> 之前会定义system:node这个角色，目的是为了kubelet可以访问到必要的资源，包括所有secret的读权限及更新pod状态的写权限。
+> 如果1.8版本后，是建议使用 [Node authorizer](https://kubernetes.io/docs/reference/access-authn-authz/node/) and [NodeRestriction admission plugin](https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/#noderestriction) 来代替这个角色的。
 
 我们目前使用1.19，查看一下授权策略：
 
 ```powershell
 $ ps axu|grep apiserver
 kube-apiserver --authorization-mode=Node,RBAC  --enable-admission-plugins=NodeRestriction
-
-
 ```
 
 查看一下官网对Node authorizer的介绍：
@@ -1398,6 +1817,10 @@ kube-apiserver --authorization-mode=Node,RBAC  --enable-admission-plugins=NodeRe
 *In future releases, the node authorizer may add or remove permissions to ensure kubelets have the minimal set of permissions required to operate correctly.*
 
 *In order to be authorized by the Node authorizer, kubelets must use a credential that identifies them as being in the `system:nodes` group, with a username of `system:node:<nodeName>`*
+
+翻译过来是：
+
+> 为了获得节点鉴权器的授权，kubelet 必须使用一个凭证以表示它在 `system:nodes` 组中，用户名为 `system:node:<nodeName>`
 
 
 
