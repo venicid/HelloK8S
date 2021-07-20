@@ -2131,7 +2131,9 @@ $ kubectl -n luffy scale deployment myblog --replicas=2
 
 ![](images/hpa.png)
 
-基本原理：HPA 通过监控分析控制器控制的所有 Pod 的负载变化情况来确定是否需要调整 Pod 的副本数量
+基本原理：
+
+> HPA 通过`监控分析控制器`控制的所有` Pod 的负载变化情况`来确定是否需要`调整 Pod 的副本数量`
 
 HPA的实现有两个版本：
 
@@ -2142,10 +2144,11 @@ HPA的实现有两个版本：
 
 如何获取Pod的监控数据？
 
-- k8s 1.8以下：使用heapster，1.11版本完全废弃
-- k8s 1.8以上：使用metric-server
+> - k8s 1.8以下：使用heapster，1.11版本完全废弃
+>
+> - k8s 1.8以上：使用metric-server
 
-思考：为什么之前用 heapster ，现在废弃了项目，改用 metric-server ？
+思考：`为什么之前用 heapster ，现在废弃了项目，改用 metric-server ？`
 
 heapster时代，apiserver 会直接将metric请求通过apiserver proxy 的方式转发给集群内的 hepaster 服务，采用这种 proxy 方式是有问题的：
 
@@ -2157,16 +2160,30 @@ heapster时代，apiserver 会直接将metric请求通过apiserver proxy 的方�
 
 - heapster的接口不能像apiserver一样有完整的鉴权以及client集成
 
-- pod 的监控数据是核心指标（HPA调度），应该和 pod 本身拥有同等地位，即 metric应该作为一种资源存在，如metrics.k8s.io 的形式，称之为 Metric Api
+- pod 的`监控数据是核心指标（HPA调度），应该和 pod 本身拥有同等地位`， 
+  即 metric应该作为一种资源存在，如metrics.k8s.io 的形式，称之为 Metric Api
+
+```
+kubectl get apiserver
+v1beta1.metrics.k8s.io                 kube-system/metrics-server   True        13m
+
+https://master-ip:6443/apis/metrics.k8s.io/v1beta1
+```
+
+
 
 于是官方从 1.8 版本开始逐步废弃 heapster，并提出了上边 Metric api 的概念，而 metrics-server 就是这种概念下官方的一种实现，用于从 kubelet获取指标，替换掉之前的 heapster。
 
- `Metrics Server` 可以通过标准的 Kubernetes API 把监控数据暴露出来，比如获取某一Pod的监控数据：
+> `Metrics Server` 可以通过标准的 Kubernetes API 把监控数据暴露出来，比如获取某一Pod的监控数据：
 
 ```powershell
 https://172.21.51.143:6443/apis/metrics.k8s.io/v1beta1/namespaces/<namespace-name>/pods/<pod-name>
 
 # https://172.21.51.143:6443/api/v1/namespaces/luffy/pods?limit=500
+
+# 查看访问接口
+$ kubectl top pods -n luffy -v=7
+I0719 21:15:03.560314   80793 round_trippers.go:421] GET https://192.168.150.128:6443/apis/metrics.k8s.io/v1beta1/namespaces/luffy/pods
 ```
 
 
@@ -2189,7 +2206,9 @@ Metrics Server registered in the main API server through Kubernetes aggregator, 
 ...
 ```
 
-
+> Metric server 从Summary API收集度量，由Kubelet在每个节点上公开。
+>
+> Metrics Server通过Kubernetes聚合器在主API服务器中注册，该聚合器在Kubernetes 1.7中引入
 
 ###### 安装
 
@@ -2208,7 +2227,7 @@ $ wget https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.4.
 修改args参数：
 
 ```powershell
-...
+# vim components.yaml
 130       containers:
 131       - args:
 132         - --cert-dir=/tmp
@@ -2226,9 +2245,17 @@ $ wget https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.4.
 ```powershell
 $ kubectl apply -f components.yaml
 
-$ kubectl -n kube-system get pods
+[root@k8s-master hpa]# kubectl -n kube-system get pods -owide
+NAME                                 READY   STATUS              RESTARTS   AGE     IP                NODE         NOMINATED NODE   READINESS GATES
 
+metrics-server-64cc7c9446-d6vd5      0/1     ContainerCreating   0          14s     <none>            k8s-slave2   <none>           <none>
+
+$ kubectl -n kube-system logs -f mertric-xxxxx
+
+# 查看pod的监控数据
 $ kubectl top nodes
+
+# 根据监控数据--> 进行hpa水平伸缩
 ```
 
 
@@ -2237,7 +2264,7 @@ $ kubectl top nodes
 
 ###### kubelet的指标采集
 
-无论是 heapster还是 metric-server，都只是数据的中转和聚合，两者都是调用的 kubelet 的 api 接口获取的数据，而 kubelet 代码中实际采集指标的是 cadvisor 模块，你可以在 node 节点访问 10250 端口获取监控数据：
+无论是 heapster还是 metric-server，都只是数据的中转和聚合，两者都是调用的 kubelet 的 api 接口获取的数据，而` kubelet 代码中实际采集指标的是 cadvisor 模块`，你可以在 node 节点访问 10250 端口获取监控数据：
 
 - Kubelet Summary metrics:  https://127.0.0.1:10250/metrics，暴露 node、pod 汇总数据
 - Cadvisor metrics: https://127.0.0.1:10250/metrics/cadvisor，暴露 container 维度数据
@@ -2245,14 +2272,20 @@ $ kubectl top nodes
 调用示例：
 
 ```powershell
+$ kubectl -n kubernetes-dashboard describe secret admin-toke-dfa
 $ curl -k  -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6InhXcmtaSG5ZODF1TVJ6dUcycnRLT2c4U3ZncVdoVjlLaVRxNG1wZ0pqVmcifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlcm5ldGVzLWRhc2hib2FyZCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJhZG1pbi10b2tlbi1xNXBueiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJhZG1pbiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6ImViZDg2ODZjLWZkYzAtNDRlZC04NmZlLTY5ZmE0ZTE1YjBmMCIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDprdWJlcm5ldGVzLWRhc2hib2FyZDphZG1pbiJ9.iEIVMWg2mHPD88GQ2i4uc_60K4o17e39tN0VI_Q_s3TrRS8hmpi0pkEaN88igEKZm95Qf1qcN9J5W5eqOmcK2SN83Dd9dyGAGxuNAdEwi0i73weFHHsjDqokl9_4RGbHT5lRY46BbIGADIphcTeVbCggI6T_V9zBbtl8dcmsd-lD_6c6uC2INtPyIfz1FplynkjEVLapp_45aXZ9IMy76ljNSA8Uc061Uys6PD3IXsUD5JJfdm7lAt0F7rn9SdX1q10F2lIHYCMcCcfEpLr4Vkymxb4IU4RCR8BsMOPIO_yfRVeYZkG4gU2C47KwxpLsJRrTUcUXJktSEPdeYYXf9w" https://localhost:10250/metrics
+
+curl -k -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IlhyRV9WUHFUSVpPaHM5NFZBRFlKX1hCSjFMQnE5b3JTa05CMWZ0bjBrdVEifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlcm5ldGVzLWRhc2hib2FyZCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJhZG1pbi10b2tlbi10c3ZqbSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJhZG1pbiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6IjA0NDliMzU3LWEwODEtNGUyYS05MDhiLTBhNDAwZDViYjg2MyIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDprdWJlcm5ldGVzLWRhc2hib2FyZDphZG1pbiJ9.dN8jOLkLs8NSV6isZuuxjjETMUkpJhLIpq8p9ob9gHpV-6Si9Dw9cCW0d8zlIqJ0FZJM5f0zUc7xYxcQzCO6ixfMjpkM6PEjPFo5JjtJVa7AB74SxGiwxZJe_JUoXZwviv3uj_6XRf2vwNws_8OxNwJrIUyjvPFD3rTXIR-GdgTI-ChJX8W9sPULsjAkO9XUnTo1SJSdT7xK8ZVnLXEY6Jg78cHT9huSBlxS7DBanGXuGGY4w8-u0D2f_UsyjQKjiciRI3qUrdGtPEJetW-hxvSBKWs59XCf8w_xQEJacjFx3eQvueg9HicdlLMiZ_XcWTBP519rLWfkrhWnP2uUhA" https://192.168.150.128:10250/metrics/cadvisor
+
+# 容器层面的指标
+$ curl https://localhost:10250/metrics/cadvisor
 ```
 
 kubelet虽然提供了 metric 接口，但实际监控逻辑由内置的cAdvisor模块负责，早期的时候，cadvisor是单独的组件，从k8s 1.12开始，cadvisor 监听的端口在k8s中被删除，所有监控数据统一由Kubelet的API提供。
 
-cadvisor获取指标时实际调用的是 runc/libcontainer库，而libcontainer是对 cgroup文件 的封装，即 cadvsior也只是个转发者，它的数据来自于cgroup文件。
+> cadvisor获取指标时实际调用的是 runc/libcontainer库，而libcontainer是对 cgroup文件 的封装，即 cadvsior也只是个转发者，`它的数据来自于cgroup文件`。
 
-cgroup文件中的值是监控数据的最终来源，如
+> cgroup文件中的值是监控数据的最终来源，如
 
 - mem usage的值，
 
@@ -2267,13 +2300,17 @@ cgroup文件中的值是监控数据的最终来源，如
 
 - 内存使用率 = memory.usage_in_bytes/memory.limit_in_bytes
 
-Metrics数据流：
+
+
+kubectl的Metrics数据流：
 
 ![](images/hap-flow.webp)
 
 思考：
 
-Metrics Server是独立的一个服务，只能服务内部实现自己的api，是如何做到通过标准的kubernetes 的API格式暴露出去的？
+>  Metrics Server是独立的一个服务，只能服务内部实现自己的api，是如何做到通过标准的kubernetes 的API格式暴露出去的？
+>
+> metrics.k8s.io/v1beat1  ===> mertic-server（后安装的组件如何带来k8s内部的api）
 
 [kube-aggregator](https://github.com/kubernetes/kube-aggregator)
 
@@ -2281,9 +2318,22 @@ Metrics Server是独立的一个服务，只能服务内部实现自己的api，
 
 ###### kube-aggregator聚合器及Metric-Server的实现
 
-kube-aggregator是对 apiserver 的api的一种拓展机制，它允许开发人员编写一个自己的服务，并把这个服务注册到k8s的api里面，即扩展 API 。
+>  kube-aggregator是`对 apiserver 的api的一种拓展机制`，
+> 它允许开发人员编写一个自己的服务，并`把这个服务注册到k8s的api里面`，即扩展 API 。
 
 ![](images/kube-aggregation.webp)
+
+如何把k8s的标准api转给mertric server呢？
+
+```
+$ kubectl -n luffy top pods -v=6
+I0719 21:16:35.253201   81659 round_trippers.go:444] GET https://192.168.150.128:6443/apis/metrics.k8s.io/v1beta1/namespaces/luffy/pods 200 OK in 4 milliseconds
+
+```
+
+
+
+
 
 定义一个APIService对象：
 
@@ -2291,7 +2341,7 @@ kube-aggregator是对 apiserver 的api的一种拓展机制，它允许开发人
 apiVersion: apiregistration.k8s.io/v1
 kind: APIService
 metadata:
-  name: v1beta1.luffy.k8s.io
+  name: v1beta1.luffy.k8s.io  # 提供服务的name
 spec:
   group: luffy.k8s.io
   groupPriorityMinimum: 100
@@ -2310,30 +2360,36 @@ k8s会自动帮我们代理如下url的请求：
 proxyPath := "/apis/" + apiService.Spec.Group + "/" + apiService.Spec.Version
 ```
 
-即：https://172.21.51.143:6443/apis/luffy.k8s.io/v1beta1/xxxx转到我们的service-A服务中，service-A中只需要实现 `https://service-A/apis/luffy.k8s.io/v1beta1/xxxx` 即可。
+> 即：https://172.21.51.143:6443/apis/luffy.k8s.io/v1beta1/xxxx转到我们的service-A服务中，
+> service-A中只需要实现 `https://service-A/apis/luffy.k8s.io/v1beta1/xxxx` 即可。
 
 
 
 看下metric-server的实现：
 
 ```powershell
+# 查看服务
 $ kubectl get apiservice 
 NAME                       SERVICE                      AVAILABLE                      
 v1beta1.metrics.k8s.io   kube-system/metrics-server		True
 
+# 查看配置文件
 $ kubectl get apiservice v1beta1.metrics.k8s.io -oyaml
 ...
 spec:
-  group: metrics.k8s.io
+  group: metrics.k8s.io  # group
   groupPriorityMinimum: 100
   insecureSkipTLSVerify: true
   service:
     name: metrics-server
     namespace: kube-system
     port: 443
-  version: v1beta1
+  version: v1beta1    # version
   versionPriority: 100
 ...
+
+# 拼接出这个api接口
+kubectl -n luffy top pods -v=6 
 
 $ kubectl -n kube-system get svc metrics-server
 NAME             TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)   AGE
@@ -2355,9 +2411,12 @@ $ curl -k  -H "Authorization: Bearer xxxx" https://10.110.111.146
     "/version"
   ]
 
+# 访问mertrice-server接口，等同于访问k8s-apiserver的接口
+# api-server把接口代理，抛给mertric-server
+$ curl -k  -H "Authorization: Bearer xxxx" https://10.110.111.146/apis/metrics.k8s.io/v1beta1/namespaces/luffy/pods/myblog-5d9ff54d4b-4rftt
+
 # https://172.21.51.143:6443/apis/metrics.k8s.io/v1beta1/namespaces/<namespace-name>/pods/<pod-name>
 # 
-$ curl -k  -H "Authorization: Bearer xxxx" https://10.110.111.146/apis/metrics.k8s.io/v1beta1/namespaces/luffy/pods/myblog-5d9ff54d4b-4rftt
 
 $ curl -k  -H "Authorization: Bearer xxxx" https://172.21.51.143:6443/apis/metrics.k8s.io/v1beta1/namespaces/luffy/pods/myblog-5d9ff54d4b-4rftt
 ```
@@ -2374,6 +2433,7 @@ $ curl -k  -H "Authorization: Bearer xxxx" https://172.21.51.143:6443/apis/metri
 
 ```powershell
 # 方式一
+# myblog，memory>80%,  cpu >20%
 $ cat hpa-myblog.yaml
 apiVersion: autoscaling/v2beta2
 kind: HorizontalPodAutoscaler
@@ -2390,26 +2450,30 @@ spec:
   metrics:
     - type: Resource
       resource:
-        name: memory
+        name: memory  
         target:
           type: Utilization
           averageUtilization: 80
     - type: Resource
       resource:
-        name: cpu
+        name: cpu 
         target:
           type: Utilization
           averageUtilization: 20
 
-# 方式二
+# 方式二（不推荐）
 $ kubectl -n luffy autoscale deployment myblog --cpu-percent=10 --min=1 --max=3
+
+# 查看hpa
+$ kubectl apply -f hpa-myblog.yaml 
+$ kubectl -n luffy get hpa
 ```
 
 > Deployment对象必须配置requests的参数，不然无法获取监控数据，也无法通过HPA进行动态伸缩
 
 
 
-验证：
+验证：`给myblog加压`
 
 ```powershell
 $ yum -y install httpd-tools
@@ -2422,12 +2486,15 @@ $ kubectl -n luffy scale deploy myblog --replicas=1
 # 模拟1000个用户并发访问页面10万次
 $ ab -n 100000 -c 1000 http://10.104.245.225/blog/index/
 
-$ kubectl get hpa
+# 监听hpa
+$ kubectl -n luffy get hpa -w
+
+# 副本数由hpa控制，而deployment不生效了
 $ kubectl -n luffy get pods
 
 ```
 
-压力降下来后，会有默认5分钟的scaledown的时间，可以通过controller-manager的如下参数设置：
+压力降下来后，会有`默认5分钟的scaledown的时间`，可以通过controller-manager的如下参数设置：
 
 ```
 --horizontal-pod-autoscaler-downscale-stabilization
@@ -2436,13 +2503,13 @@ The value for this option is a duration that specifies how long the autoscaler h
 ```
 
 
-是一个逐步的过程，当前的缩放完成后，下次缩放的时间间隔，比如从3个副本降低到1个副本，中间大概会等待2*5min = 10分钟
+是一个逐步的过程，当前的缩放完成后，下次缩放的时间间隔，`比如从3个副本降低到1个副本，中间大概会等待2*5min = 10分钟`
 
 
 
 ###### 基于自定义指标的动态伸缩
 
- 除了基于 CPU 和内存来进行自动扩缩容之外，我们还可以根据自定义的监控指标来进行。这个我们就需要使用 `Prometheus Adapter`，Prometheus 用于监控应用的负载和集群本身的各种指标，`Prometheus Adapter` 可以帮我们使用 Prometheus 收集的指标并使用它们来制定扩展策略，这些指标都是通过 APIServer 暴露的，而且 HPA 资源对象也可以很轻易的直接使用。 
+ 除了基于 CPU 和内存来进行自动扩缩容之外，我们还可以`根据自定义的监控指标来进行`。这个我们就需要使用 `Prometheus Adapter`，Prometheus 用于监控应用的负载和集群本身的各种指标，`Prometheus Adapter` 可以帮我们使用 Prometheus 收集的指标并使用它们来制定扩展策略，这些指标都是通过 APIServer 暴露的，而且 HPA 资源对象也可以很轻易的直接使用。 
 
 ![](images/custom-hpa.webp)
 
@@ -2458,7 +2525,7 @@ The value for this option is a duration that specifies how long the autoscaler h
 
 ##### PV与PVC快速入门
 
-k8s存储的目的就是保证Pod重建后，数据不丢失。简单的数据持久化的下述方式：
+k8s存储的目的就是`保证Pod重建后，数据不丢失`。简单的数据持久化的下述方式：
 
 - emptyDir 
 
@@ -2475,7 +2542,7 @@ k8s存储的目的就是保证Pod重建后，数据不丢失。简单的数据�
       - mountPath: /cache
         name: cache-volume
     - image: k8s.gcr.io/test-redis
-      name: redis
+      name: redis 
       volumeMounts:
       - mountPath: /data
         name: cache-volume
@@ -2485,7 +2552,7 @@ k8s存储的目的就是保证Pod重建后，数据不丢失。简单的数据�
   ```
 
   - Pod内的容器共享卷的数据
-  - 存在于Pod的生命周期，Pod销毁，数据丢失
+  - 存在于Pod的生命周期，`Pod销毁，数据丢失`
   - Pod内的容器自动重建后，数据不会丢失
 
 - hostPath
@@ -2528,9 +2595,11 @@ k8s存储的目的就是保证Pod重建后，数据不丢失。简单的数据�
 
   
 
-volume支持的种类众多（参考 https://kubernetes.io/docs/concepts/storage/volumes/#types-of-volumes ），每种对应不同的存储后端实现，因此为了屏蔽后端存储的细节，同时使得Pod在使用存储的时候更加简洁和规范，k8s引入了两个新的资源类型，PV和PVC。
+volume支持的种类众多（参考 https://kubernetes.io/docs/concepts/storage/volumes/#types-of-volumes ），每种对应不同的存储后端实现，
 
-PersistentVolume（持久化卷），是对底层的存储的一种抽象，它和具体的底层的共享存储技术的实现方式有关，比如 Ceph、GlusterFS、NFS 等，都是通过插件机制完成与共享存储的对接。如使用PV对接NFS存储：
+> 为了屏蔽后端存储的细节，同时使得Pod在使用存储的时候更加简洁和规范，`k8s引入了两个新的资源类型，PV和PVC。`
+
+`PersistentVolume（持久化卷），是对底层的存储的一种抽象`，它和具体的底层的共享存储技术的实现方式有关，比如 Ceph、GlusterFS、NFS 等，都是通过插件机制完成与共享存储的对接。如使用PV对接NFS存储：
 
 ```yaml
 apiVersion: v1
@@ -2548,8 +2617,8 @@ spec:
     server: 172.21.51.55
 ```
 
-- capacity，存储能力， 目前只支持存储空间的设置， 就是我们这里的 storage=1Gi，不过未来可能会加入 IOPS、吞吐量等指标的配置。 
-- accessModes，访问模式， 是用来对 PV 进行访问模式的设置，用于描述用户应用对存储资源的访问权限，访问权限包括下面几种方式： 
+- `capacity，存储能力`， 目前只支持存储空间的设置， 就是我们这里的 storage=1Gi，不过未来可能会加入 IOPS、吞吐量等指标的配置。 
+- `accessModes，访问模式`， 是用来对 PV 进行访问模式的设置，用于描述用户应用对存储资源的访问权限，访问权限包括下面几种方式： 
   - ReadWriteOnce（RWO）：读写权限，但是只能被单个节点挂载
   - ReadOnlyMany（ROX）：只读权限，可以被多个节点挂载
   - ReadWriteMany（RWX）：读写权限，可以被多个节点挂载
@@ -2563,7 +2632,7 @@ spec:
 
 因为PV是直接对接底层存储的，就像集群中的Node可以为Pod提供计算资源（CPU和内存）一样，PV可以为Pod提供存储资源。因此PV不是namespaced的资源，属于集群层面可用的资源。Pod如果想使用该PV，需要通过创建PVC挂载到Pod中。
 
-PVC全写是PersistentVolumeClaim（持久化卷声明），PVC 是用户存储的一种声明，创建完成后，可以和PV实现一对一绑定。对于真正使用存储的用户不需要关心底层的存储实现细节，只需要直接使用 PVC 即可。
+`PVC全写是PersistentVolumeClaim（持久化卷声明）`，PVC 是用户存储的一种声明，创建完成后，可以和PV实现一对一绑定。对于真正使用存储的用户不需要关心底层的存储实现细节，只需要直接使用 PVC 即可。
 
 ```yaml
 apiVersion: v1
@@ -2627,11 +2696,14 @@ $ systemctl enable nfs && systemctl start nfs
 $ yum -y install nfs-utils rpcbind
 $ mkdir /nfsdata
 $ mount -t nfs 172.21.51.55:/data/k8s /nfsdata
+
+$ df -Th
 ```
 
 ###### PV与PVC演示
 
 ```powershell
+$ mkdir /data/k8s/nginx
 $ cat pv-nfs.yaml
 apiVersion: v1
 kind: PersistentVolume
@@ -2688,7 +2760,7 @@ nfs-pv   1Gi        RWO            Retain           Bound    default/pvc-nfs
 
 #PersistentVolumeController会不断地循环去查看每一个 PVC，是不是已经处于 Bound（已绑定）状态。如果不是，那它就会遍历所有的、可用的 PV，并尝试将其与未绑定的 PVC 进行绑定，这样，Kubernetes 就可以保证用户提交的每一个 PVC，只要有合适的 PV 出现，它就能够很快进入绑定状态。而所谓将一个 PV 与 PVC 进行“绑定”，其实就是将这个 PV 对象的名字，填在了 PVC 对象的 spec.volumeName 字段上。
 
-# 查看nfs数据目录
+# 到slave查看nfs数据目录
 $ ls /nfsdata
 ```
 
@@ -2728,14 +2800,29 @@ spec:
           
 $ kubectl create -f deployment.yaml
 
+$ kubectl get pod
+
+# 进入容器，创建index.html
 # 查看容器/usr/share/nginx/html目录
+kubectl exec -ti nfs-xxxx sh
+df -Th
+cd /usr/share/nginx/html
+touch index.html
+
+# 查看/data/k8s/nginx下面是否生成index文件
+ll /data/k8s/nginx
+ls /nfsdata/nginx/
 
 # 删除pvc
 ```
 
+总结：pv，pvc，bound，deployment
+
 ###### storageClass实现动态挂载
 
-创建pv及pvc过程是手动，且pv与pvc一一对应，手动创建很繁琐。因此，通过storageClass  +  provisioner的方式来实现通过PVC自动创建并绑定PV。
+创建pv及pvc过程是手动，且pv与pvc一一对应，手动创建很繁琐。
+
+> 因此，通过`storageClass  +  provisioner`的方式来实现通过PVC自动创建并绑定PV。
 
 ![](images/storage-class.png)
 
@@ -2868,7 +2955,26 @@ metadata:
 provisioner: luffy.com/nfs
 ```
 
-`pvc.yaml`
+创建资源
+
+```shell
+kubctl craete ns nfs-provisioner
+kubectl apply -f .
+kubectl -n nfs-provisioner get po
+
+# 查看配置是否生成
+kubectl -n nfs-provisioner get po nfs-xxx -oyaml
+
+# 把token给serviceaccount自动挂载
+kubect -n nfs-provisioner exec nfs-xxx cat /var/run/secrets/kubernets.io/serviceaccount/token
+
+# 查看
+kubectl get stroageClass
+```
+
+
+
+`pvc.yaml` 新的pod访问，nfs
 
 ```yaml
 kind: PersistentVolumeClaim
@@ -2883,6 +2989,18 @@ spec:
       storage: 1Mi
   storageClassName: nfs
 ```
+
+```shell
+kubectl apply -f pvc.yaml
+
+# 绑定成功
+kubectl get pv
+
+# 创建pvc，执行3,4,5流程，把pvc和pv绑定起来
+kubectl get pvc
+```
+
+
 
 
 
@@ -2943,7 +3061,7 @@ NFS，ceph-rbd，cephfs均提供了对应的provisioner
 
 
 
-部署cephfs-provisioner
+部署cephfs-provisionerf
 
 ```powershell
 $ cat external-storage-cephfs-provisioner.yaml
