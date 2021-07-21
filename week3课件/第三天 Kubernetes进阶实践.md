@@ -984,7 +984,7 @@ $ docker exec vxlan-test ping 172.18.2.2
 
 
 
-###### Flannel的vxlan实现精讲（重点）
+###### Flannel的vxlan实现精讲（重点！）
 
 思考：`k8s集群的网络环境`和`手动实现的跨主机的容器通信`有哪些差别？
 
@@ -1288,7 +1288,7 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
 
 
-#### Kubernetes认证与授权 
+#### Kubernetes认证与授权 (重点！)
 
 ###### APIServer安全控制
 
@@ -2672,7 +2672,7 @@ spec:
 
 
 
-##### PV与PVC管理NFS存储卷实践
+##### PV与PVC管理NFS存储卷实践（经常使用！）
 
 ###### 环境准备
 
@@ -3061,6 +3061,8 @@ NFS，ceph-rbd，cephfs均提供了对应的provisioner
 
 
 
+实战
+
 部署cephfs-provisionerf
 
 ```powershell
@@ -3183,6 +3185,7 @@ AQBPTstgc078NBAA78D1/KABglIZHKh7+G2X8w==
 ```powershell
 $ echo -n AQBPTstgc078NBAA78D1/KABglIZHKh7+G2X8w==|base64
 QVFCUFRzdGdjMDc4TkJBQTc4RDEvS0FCZ2xJWkhLaDcrRzJYOHc9PQ==
+
 $ cat ceph-admin-secret.yaml
 apiVersion: v1
 data:
@@ -3213,6 +3216,15 @@ parameters:
     claimRoot: /volumes/kubernetes
 ```
 
+查看是否启动成功
+
+```
+kubectl apply -f .
+kubectl -n kube-system get po
+```
+
+
+
 
 
 ###### 动态pvc验证及实现分析
@@ -3237,8 +3249,17 @@ spec:
 
 $ kubectl create -f cephfs-pvc-test.yaml
 
-$ kubectl get pv
+$ kubectl get pvc
+
+# 一直在pending，可能是驱动有问题
+kubectl -n kube-system get po
+kubectl -n kube-system logs -f pvcxxxxx
+
+
+# 默认绑定1个
+$ kubectl get pvc
 pvc-2abe427e-7568-442d-939f-2c273695c3db   2Gi        RWO            Delete           Bound      default/cephfs-claim   dynamic-cephfs            1s
+
 
 ```
 
@@ -3271,6 +3292,16 @@ $ kubectl create -f test-pvc-cephfs.yaml
 
 ```
 
+查看storageclasss
+
+```
+kubectl get storeageclass
+```
+
+
+
+
+
 我们所说的容器的持久化，实际上应该理解为宿主机中volume的持久化，因为Pod是支持销毁重建的，所以只能通过宿主机volume持久化，然后挂载到Pod内部来实现Pod的数据持久化。
 
 宿主机上的volume持久化，因为要支持数据漂移，所以通常是数据存储在分布式存储中，宿主机本地挂载远程存储（NFS，Ceph，OSS），这样即使Pod漂移也不影响数据。
@@ -3292,7 +3323,11 @@ $ findmnt /var/lib/kubelet/pods/61ba43c5-d2e9-4274-ac8c-008854e4fa8e/volumes/kub
 172.21.51.55:6789:/volumes/kubernetes/kubernetes/kubernetes-dynamic-pvc-ffe3d84d-c433-11ea-b347-6acc3cf3c15f
 ```
 
+挂载
 
+```
+mount -t ceph 172.21.51.55:6789:/
+```
 
 
 
