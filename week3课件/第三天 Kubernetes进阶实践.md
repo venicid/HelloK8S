@@ -3295,7 +3295,7 @@ $ kubectl create -f test-pvc-cephfs.yaml
 查看storageclasss
 
 ```
-kubectl get storeageclass
+kubectl get stroageClass
 ```
 
 
@@ -3326,7 +3326,7 @@ $ findmnt /var/lib/kubelet/pods/61ba43c5-d2e9-4274-ac8c-008854e4fa8e/volumes/kub
 挂载
 
 ```
-mount -t ceph 172.21.51.55:6789:/
+mount -t ceph 172.21.51.55:6789:/ /mnt/cephfs -o name=admin,secret=AQBPTstgc078NBAA78D1/KABglIZHKh7+G2X8w==
 ```
 
 
@@ -3339,9 +3339,11 @@ mount -t ceph 172.21.51.55:6789:/
 
 1. 为什么有helm？
 
+   快速帮我们启动APP，包括前端，后端，数据库等各种组件
+
 2. Helm是什么？
 
-   kubernetes的包管理器，“可以将Helm看作Linux系统下的apt-get/yum”。  
+   `kubernetes的包管理器，“可以将Helm看作Linux系统下的apt-get/yum”。  `
 
    - 对于应用发布者而言，可以通过Helm打包应用，管理应用依赖关系，管理应用版本并发布应用到软件仓库。
 
@@ -3418,17 +3420,26 @@ $ helm version
 version.BuildInfo{Version:"v3.2.4", GitCommit:"0ad800ef43d3b826f31a5ad8dfbb4fe05d143688", GitTreeState:"clean", GoVersion:"go1.13.12"}
 $ helm env
 
+# docker 镜像仓库
+# helm也有仓库，叫chart仓库
+helm search hub nginx
+
 # 添加仓库
-$ helm repo add stable http://mirror.azure.cn/kubernetes/charts/
+$ helm repo add stable https://charts.bitnami.com/bitnami
+
 # 同步最新charts信息到本地
 $ helm repo update
 
-
+$ helm repo ls
 ```
 
 
 
 快速入门实践：
+
+
+
+
 
 示例一：使用helm安装mysql应用
 
@@ -3449,10 +3460,51 @@ $ tree mysql
 
 
 
+示例一：使用helm安装wordpress应用
+
+```shell
+# helm 搜索chart包
+$ helm search repo wordpress
+
+$ kubectl create namespace wordpress
+
+# 从仓库安装
+# 生成各种用户名密码
+$ helm -n wordpress install wordpress stable/wordpress --set mariadb.primary.persistence.enabled=false --set service.type=ClusterIP --set ingress.enabled=true --set persistence.enabled=false --set ingress.hostname=wordpress.luffy.com
+
+# 基于chart部署出来的内容===> release
+# chart -->release
+# docker ,image ===> container
+$ helm -n wordpress ls
+
+# 查看各种资源
+$ kubectl -n wordpress get all 
+$ kubectl -n wordpress get pod
+$ kubectl -n wordpress get ing
+$ kubectl -n wordpress get sts
+
+# 给本地hosts添加
+192.168.150.128 wordpress.luffy.com 
+
+# 浏览器访问
+
+# 从chart仓库中把chart包下载到本地
+$ helm pull stable/wordpress
+$ tar xvf wordpress.zxx
+$ ll wordpress
+```
+
+
+
 示例二：新建nginx的chart并安装
+
+`创建chart的模板，改变为我们业务需要的`
 
 ```powershell
 $ helm create nginx
+
+# 查看最小，必不可少的各种文件
+$ ll /nginx
 
 # 从本地安装
 $ helm install nginx ./nginx
@@ -3464,8 +3516,13 @@ $ helm -n luffy install nginx ./nginx --set replicaCount=2 --set image.tag=alpin
 $ helm ls
 $ helm -n luffy ls
 
-#
+# 查看资源
 $ kubectl -n luffy get all
+$ kubectl -n luffy get pod
+
+# 把参数部署到pod的yaml里面去了
+# 哪里替换的呢？？
+$ kubectl -n luffy get pod nginx-xxx -oyaml | grep image
 ```
 
 
@@ -3521,7 +3578,7 @@ $ helm install debug-nginx ./ --dry-run --set replicaCount=2 --debug
   ```go
   .Values
   .Release.Name
-  
+  .Chart
   ```
 
   - `Release`：该对象描述了 release 本身的相关信息，它内部有几个对象：
@@ -3538,20 +3595,20 @@ $ helm install debug-nginx ./ --dry-run --set replicaCount=2 --debug
 
   ```go
   {{- define "nginx.fullname" -}}
-  {{- if .Values.fullnameOverride }}
-  {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+  {{- if .Values.fullnameOverride }}  #如果.Values.fullnameOverride值不为空
+  {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }} # nginx.fullname就等于Values.fullnameOverride，截取前63位，同时去掉最后的“-”
   {{- else }}
-  {{- $name := default .Chart.Name .Values.nameOverride }}
-  {{- if contains $name .Release.Name }}
-  {{- .Release.Name | trunc 63 | trimSuffix "-" }}
+  {{- $name := default .Chart.Name .Values.nameOverride }} # 定义1个变量name，值为Values.nameOverride，默认为Chart.Name
+  {{- if contains $name .Release.Name }} # 如果变量name的值包含了.Release.Name
+  {{- .Release.Name | trunc 63 | trimSuffix "-" }} # 那么nginx.fullname=.Release.Name截取前63位，同时去掉最后的“-”
   {{- else }}
-  {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+  {{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }} nginx.fullname=..Release.Name-$name
   {{- end }}
   {{- end }}
   {{- end }}
   ```
 
-  - {{-  去掉左边的空格及换行，-}}  去掉右侧的空格及换行
+  - `{{-  去掉左边的空格及换行，-}}  去掉右侧的空格及换行`
 
   - 示例
 
@@ -3594,7 +3651,7 @@ $ helm install debug-nginx ./ --dry-run --set replicaCount=2 --debug
     {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
     ```
 
-  - nindent表示前面的空格数
+  - `nindent表示前面的空格数`
 
     ```go
       selector:
@@ -3634,7 +3691,7 @@ $ helm install debug-nginx ./ --dry-run --set replicaCount=2 --debug
   {{- $name := default .Chart.Name .Values.nameOverride }}
   ```
 
-- 遍历values的数据
+- `遍历values的数据`
 
   ```go
         {{- with .Values.nodeSelector }}
@@ -3767,18 +3824,39 @@ $ helm install nginx-2 ./nginx --set replicaCount=2 --set resources.limits.cpu=2
 
 
 
+实战
+
 组件众多，因此使用helm部署
 
 ```powershell
 # 添加harbor chart仓库
 $ helm repo add harbor https://helm.goharbor.io
 
+$ helm repo ls
+
 # 搜索harbor的chart
 $ helm search repo harbor
 
 # 不知道如何部署，因此拉到本地
 $ helm pull harbor/harbor
+
+# 查看harbor的所有yaml文件，其中vaules.yaml是我们应该配置的
+ll harbor
 ```
+
+修改values.yaml
+
+```
+...
+ingress:
+  hosts:
+    core: harbor.luffy.com  # 主机域名,暴露的harbor的入口
+    notary: harbor.luffy.com 
+... 
+externalURL: https://harbor.luffy.com 
+```
+
+
 
 
 
@@ -3786,13 +3864,14 @@ $ helm pull harbor/harbor
 
 ```powershell
 $ kubectl create namespace harbor
+
 $ cat harbor-pv.yaml
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: cephfs-pv
+  name: harbor-pv
   labels:
-    pv: cephfs-pv
+    pv: harbor-pv
 spec:
   capacity:
     storage: 20Gi
@@ -3804,9 +3883,10 @@ spec:
     user: admin
     secretRef:
       name: ceph-admin-secret
-	  namespace: kube-system
+      namespace: kube-system
     readOnly: false
   persistentVolumeReclaimPolicy: Retain
+  
 $ cat harbor-pvc.yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -3819,6 +3899,11 @@ spec:
   resources:
     requests:
       storage: 20Gi
+      
+$ kubectl apply -f .
+
+kubectl -n harbor get pvc
+kubectl -n harbor get pv
 ```
 
 修改harbor配置：
@@ -3830,11 +3915,35 @@ spec:
 - 开启chartmuseum
 - clair和trivy漏洞扫描组件，暂不启用
 
+```shell
+$ vim values.yaml
+existingClaim:"harbor-data-pvc"
+
+# 各自的组件放在各自的目录
+subPath: "harbor/registry"
+...
+subPath: "harbor/ redis"
+
+trivy:
+   enable:false
+   
+database:
+  password: "harbor"
+```
+
+
+
 helm创建：
 
 ```powershell
 # 使用本地chart安装
 $ helm install harbor ./harbor -n harbor
+
+$ kubectl -n harbor get po
+
+# 先保证database和redis启动正常
+$ kubectl n harbor logs harbor-database-0 
+提示没有权限
 ```
 
 数据权限问题：
@@ -3844,9 +3953,12 @@ $ helm install harbor ./harbor -n harbor
 - registry组件的镜像存储目录权限导致镜像推送失败
 - chartmuseum存储目录权限，导致chart推送失败
 
-解决：
+
+
+解决：直接去文件中修改权限
 
 ```powershell
+# 去slave1节点
 $ mount -t ceph 172.21.51.55:6789:/ /mnt/cephfs -o name=admin,secret=AQBPTstgc078NBAA78D1/KABglIZHKh7+G2X8w==
 
 $ chown -R 999:999 database
