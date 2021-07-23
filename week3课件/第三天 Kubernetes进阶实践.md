@@ -3965,6 +3965,20 @@ $ chown -R 999:999 database
 $ chown -R 999:999 redis
 $ chown -R 10000:10000 chartmuseum
 $ chown -R 10000:10000 registry
+
+# 重新拉取
+kubectl -n harbor delete po harbor-database-xxx
+
+# 查看日志
+kubectl -n harbor logs -f po harbor-database-xxx
+kubectl -n harbor delete po harbor-core-xxx
+
+# 重启失败的pod，查看日志
+
+# 查看域名，配置到本地hosts
+kubectl -n harbor get ing
+
+# 浏览器访问，密码在values.yaml中
 ```
 
 
