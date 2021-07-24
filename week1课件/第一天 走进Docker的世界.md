@@ -347,8 +347,11 @@ nginx         alpine              377c0837328f        2 weeks ago         19.7MB
    $ docker push localhost:5000/nginx:alpine
    
    ## 查看仓库内元数据
-   $ curl -X GET http://172.21.51.143:5000/v2/_catalog
-   $ curl -X GET http://172.21.51.143:5000/v2/nginx/tags/list
+   [root@localhost ~]# curl -X GET http://192.168.150.128:5000/v2/_catalog
+   {"repositories":["nginx"]}
+   
+   $ curl -X GET http://192.168.150.128:5000/v2/nginx/tags/list
+   {"name":"nginx","tags":["alpine"]}
    
    ## 镜像仓库给外部访问，不能通过localhost，尝试使用内网地址172.21.51.143:5000/nginx:alpine
    $ docker tag nginx:alpine 172.21.51.143:5000/nginx:alpine
@@ -416,6 +419,11 @@ nginx         alpine              377c0837328f        2 weeks ago         19.7MB
      ```powershell
      ## 挂载主机目录
      $ docker run --name nginx -d  -v /opt:/opt  nginx:alpine
+     
+     # 到container创建container-file
+     # 到host外部创host-file
+     # 此时两个文件都在/opt下
+     
      # -e 环境变量
      $ docker run --name mysql -e MYSQL_ROOT_PASSWORD=123456  -d -v /opt/mysql/:/var/lib/mysql mysql:5.7
      ```
@@ -829,6 +837,14 @@ $ docker exec -ti my-nginx /bin/sh
 - uwigi、mysql、pip3
 - mysql数据库 
 
+克隆python-demo项目
+
+```
+git clone https://gitee.com/agagin/python-demo.git
+```
+
+在该python-demo目录下创建Dockerfile文件
+
 ```dockerfile
 # This my first django Dockerfile
 # Version 1.0
@@ -896,7 +912,7 @@ $ docker exec -ti mysql bash
 
 ```powershell
 ## 启动容器
-$ docker run -d -p 8002:8002 --name myblog -e MYSQL_HOST=172.21.51.143 -e MYSQL_USER=root -e MYSQL_PASSWD=123456  myblog:v1 
+$ docker run -d -p 8002:8002 --name myblog -e MYSQL_HOST=192.168.150.128 -e MYSQL_USER=root -e MYSQL_PASSWD=123456  myblog:v1 
 
 ## migrate
 $ docker exec -ti myblog bash
@@ -912,7 +928,11 @@ $ docker exec -ti myblog python3 manage.py createsuperuser
 
 ```
 
-访问172.21.51.143:8002/admin
+浏览器访问192.168.150.128:8002/admin
+
+http://192.168.150.128:8002/blog/index/
+
+
 
 
 
@@ -1090,7 +1110,7 @@ lrwxrwxrwx 1 root root 0 Jun 24 12:51 uts -> uts:[4026534844]
 
 
 
-综上：通俗来讲，docker在启动一个容器的时候，会调用Linux Kernel Namespace的接口，来创建一块虚拟空间，创建的时候，可以支持设置下面这几种（可以随意选择）,docker默认都设置。
+> 综上：通俗来讲，docker在启动一个容器的时候，会调用Linux Kernel Namespace的接口，来创建一块虚拟空间，创建的时候，可以支持设置下面这几种（可以随意选择）,docker默认都设置。
 
 - pid：用于进程隔离（PID：进程ID）
 - net：管理网络接口（NET：网络）
@@ -1101,7 +1121,7 @@ lrwxrwxrwx 1 root root 0 Jun 24 12:51 uts -> uts:[4026534844]
 
 ###### CGroup 资源限制
 
-通过namespace可以保证容器之间的隔离，但是无法控制每个容器可以占用多少资源， 如果其中的某一个容器正在执行 CPU 密集型的任务，那么就会影响其他容器中任务的性能与执行效率，导致多个容器相互影响并且抢占资源。如何对多个容器的资源使用进行限制就成了解决进程虚拟资源隔离之后的主要问题。
+通过namespace可以保证容器之间的隔离，但是无法控制每个容器可以占用多少资源， 如果其中的某一个容器正在执行 CPU 密集型的任务，那么就会影响其他容器中任务的性能与执行效率，导致多个容器相互影响并且抢占资源。`如何对多个容器的资源使用进行限制`就成了解决进程虚拟资源隔离之后的主要问题。
 
 ![](images/cgroup.png)
 
@@ -1113,7 +1133,7 @@ CGroups能够隔离宿主机器上的物理资源，例如 CPU、内存、磁盘
 
 ###### UnionFS 联合文件系统
 
-Linux namespace和cgroup分别解决了容器的资源隔离与资源限制，那么容器是很轻量的，通常每台机器中可以运行几十上百个容器， 这些个容器是共用一个image，还是各自将这个image复制了一份，然后各自独立运行呢？ 如果每个容器之间都是全量的文件系统拷贝，那么会导致至少如下问题：
+Linux namespace和cgroup分别解决了容器的资源隔离与资源限制，那么容器是很轻量的，通常每台机器中可以运行几十上百个容器， `这些个容器是共用一个image，还是各自将这个image复制了一份，然后各自独立运行呢？ `如果每个容器之间都是全量的文件系统拷贝，那么会导致至少如下问题：
 
 - 运行容器的速度会变慢
 - 容器和镜像对宿主机的磁盘空间的压力
@@ -1201,9 +1221,14 @@ Linux 中，能够起到**虚拟交换机作用**的网络设备，是网桥（B
 
 ```powershell
 $ yum install -y bridge-utils
-$ brctl show
-bridge name     bridge id               STP enabled     interfaces
-docker0         8000.0242b5fbe57b       no              veth3a496ed
+
+# 查看网桥docker0
+[root@localhost myblog]# brctl show
+bridge name	bridge id		STP enabled	interfaces
+docker0		8000.024296bd8e58	no		veth516d8b7
+                                        veth75f61c2
+                                        veth792060c
+                                        vethc4b1d23
 
 ```
 
@@ -1211,11 +1236,12 @@ docker0         8000.0242b5fbe57b       no              veth3a496ed
 
 Docker 创建一个容器的时候，会执行如下操作：
 
-- 创建一对虚拟接口/网卡，也就是veth pair；
-- veth pair的一端桥接 到默认的 docker0 或指定网桥上，并具有一个唯一的名字，如 vethxxxxxx；
-- veth paid的另一端放到新启动的容器内部，并修改名字作为 eth0，这个网卡/接口只在容器的命名空间可见；
-- 从网桥可用地址段中（也就是与该bridge对应的network）获取一个空闲地址分配给容器的 eth0
-- 配置容器的默认路由
+> - `创建一对虚拟接口/网卡，也就是veth pair；`
+> - veth pair的`一端桥接 到默认的 docker0 `或指定网桥上，并具有一个唯一的名字，如 vethxxxxxx；
+> - veth paid的`另一端放到新启动的容器内部，并修改名字作为 eth0`，这个网卡/接口只在容器的命名空间可见；
+> - 从网桥可用地址段中（也就是与该bridge对应的network）`获取一个空闲地址分配给容器的 eth0`
+> - 配置容器的默认路由route
+
 
 那整个过程其实是docker自动帮我们完成的，清理掉所有容器，来验证。
 
@@ -1271,10 +1297,14 @@ $ ip a
 ```powershell
 ## 查看test1容器的网卡索引
 $ docker exec -ti test1 cat /sys/class/net/eth0/ifindex
+38
 
 ## 主机中找到虚拟网卡后面这个@ifxx的值，如果是同一个值，说明这个虚拟网卡和这个容器的eth0网卡是配对的。
 $ ip a |grep @if
-
+39: veth792060c@if38: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue master docker0 state UP group default 
+    link/ether 56:29:3f:b5:d8:7a brd ff:ff:ff:ff:ff:ff link-netnsid 2
+    inet6 fe80::5429:3fff:feb5:d87a/64 scope link 
+       valid_lft forever preferred_lft forever
 ```
 
 整理脚本，快速查看对应：

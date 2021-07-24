@@ -1774,7 +1774,7 @@ I0706 01:11:02.075178       1 event.go:291] "Event occurred" object="luffy/mysql
 
 
 
-###### 生成数据Error中
+###### 生成数据中,CoreDns失败
 
 查看配置的mysql环境变量、密码
 
@@ -1894,9 +1894,16 @@ PING 192.168.150.128 (192.168.150.128) 56(84) bytes of data.
 
    排查失败，重装k8s
 
+6. 老师给同学排查
 
+   > 嗯 主要 就是 包括master的三台node节点  删除flannel 和cni    
+   >
+   > 就是用 ip  link  del  
+   > 然后在master重启flannel  看下日志没问题就行
 
-​	
+![image-20210724124324238](day02_Kubernetes落地实践之旅_20210605.assets/image-20210724124324238.png)
+
+​	![image-20210724124335329](day02_Kubernetes落地实践之旅_20210605.assets/image-20210724124335329.png)
 
 
 

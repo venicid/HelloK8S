@@ -3391,9 +3391,9 @@ mount -t ceph 172.21.51.55:6789:/ /mnt/cephfs -o name=admin,secret=AQBPTstgc078N
 
 4. Helm的重要概念
 
-   - chart，应用的信息集合，包括各种对象的配置模板、参数定义、依赖关系、文档说明等
-   - Repoistory，chart仓库，存储chart的地方，并且提供了一个该 Repository 的 Chart 包的清单文件以供查询。Helm 可以同时管理多个不同的 Repository。
-   - release， 当 chart 被安装到 kubernetes 集群，就生成了一个 release ， 是 chart 的运行实例，代表了一个正在运行的应用 
+   - `chart，应用的信息集合，包括各种对象的配置模板、参数定义、依赖关系、文档说明等`
+   - `Repoistory，chart仓库，存储chart的地方`，并且提供了一个该 Repository 的 Chart 包的清单文件以供查询。Helm 可以同时管理多个不同的 Repository。
+   - `release， 当 chart 被安装到 kubernetes 集群，就生成了一个 release` ， 是 chart 的运行实例，代表了一个正在运行的应用 
 
 helm 是包管理工具，包就是指 chart，helm 能够：
 
@@ -3492,6 +3492,12 @@ $ kubectl -n wordpress get sts
 $ helm pull stable/wordpress
 $ tar xvf wordpress.zxx
 $ ll wordpress
+
+# 清理
+helm -n wordpress ls 
+helm -n wordpress uninstall wordpress
+helm ls -n luffy uninstall nginx
+
 ```
 
 
@@ -3523,6 +3529,7 @@ $ kubectl -n luffy get pod
 # 把参数部署到pod的yaml里面去了
 # 哪里替换的呢？？
 $ kubectl -n luffy get pod nginx-xxx -oyaml | grep image
+
 ```
 
 
@@ -3981,18 +3988,28 @@ kubectl -n harbor get ing
 # 浏览器访问，密码在values.yaml中
 ```
 
+`harbor企业里面用的比较多的一种仓库`
 
+新建项目
+
+`镜像仓库(重点)`
+
+ Helm Charts
+
+ 
 
 ###### 推送镜像到Harbor仓库
 
 配置hosts及docker非安全仓库：
 
 ```powershell
+# hosts
 $ cat /etc/hosts
 ...
 172.21.51.143 k8s-master harbor.luffy.com
 ...
 
+# docker配置
 $ cat /etc/docker/daemon.json
 {                                            
   "insecure-registries": [                   
@@ -4004,19 +4021,30 @@ $ cat /etc/docker/daemon.json
   ]                                          
 }                           
 
-#
+# 重启docker
 $ systemctl restart docker
+
+
+
+# 推送镜像到harbor
+$ docker tag nginx:alpine harbor.luffy.com/library/nginx:alpine
+
+$ docker push harbor.luffy.com/library/nginx:alpine
+unauthorized 需要认证
 
 # 使用账户密码登录admin/Harbor12345
 $ docker login harbor.luffy.com
 
-$ docker tag nginx:alpine harbor.luffy.com/library/nginx:alpine
-$ docker push harbor.luffy.com/library/nginx:alpine
+# 重新推送，镜像仓库中可以看到
 ```
 
 
 
+
+
 ###### 推送chart到Harbor仓库
+
+
 
 helm3默认没有安装helm push插件，需要手动安装。插件地址 https://github.com/chartmuseum/helm-push 
 
@@ -4032,7 +4060,12 @@ $ helm plugin install https://github.com/chartmuseum/helm-push
 $ mkdir helm-push
 $ wget https://github.com/chartmuseum/helm-push/releases/download/v0.8.1/helm-push_0.8.1_linux_amd64.tar.gz
 $ tar zxf helm-push_0.8.1_linux_amd64.tar.gz -C helm-push
+
+# 本地安装helm插件
 $ helm plugin install ./helm-push
+
+# 测试
+helm plugin ls
 ```
 
 
@@ -4040,12 +4073,17 @@ $ helm plugin install ./helm-push
 添加repo
 
 ```powershell
+# 查看
+$ helm repo  ls
+
+# 添加repo
 $ helm repo add myharbor https://harbor.luffy.com/chartrepo/luffy
-# x509错误
+# x509错误 不受信任的auth
 
 # 添加证书信任，根证书为配置给ingress使用的证书
-$ kubectl get secret harbor-harbor-ingress -n harbor -o jsonpath="{.data.ca\.crt}" | base64 -d >harbor.ca.crt
+$ kubectl get secret harbor-ingress -n harbor -o jsonpath="{.data.ca\.crt}" | base64 -d >harbor.ca.crt
 
+# cp证书到机器的信任位置
 $ cp harbor.ca.crt /etc/pki/ca-trust/source/anchors
 $ update-ca-trust enable; update-ca-trust extract
 
@@ -4063,6 +4101,10 @@ $ helm repo ls
 ```powershell
 $ helm push harbor luffy --ca-file=harbor.ca.crt -u admin -p Harbor12345
 ```
+
+helm Charts查看   
+
+
 
 
 
