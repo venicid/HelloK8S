@@ -8,8 +8,8 @@
 ### 1. 节点规划
 部署k8s集群的节点按照用途可以划分为如下2类角色：
 
-- **master**：集群的master节点，集群的初始化节点，基础配置不低于2C4G
-- **slave**：集群的slave节点，可以多台，基础配置不低于2C4G
+- **master**：集群的master节点，集群的初始化节点，基础配置不低于`2C4G`
+- **slave**：集群的slave节点，可以多台，基础配置不低于`2C4G`
 
 **本例为了演示slave节点的添加，会部署一台master+2台slave**，节点规划如下：
 
@@ -52,9 +52,9 @@ $ hostnamectl set-hostname k8s-slave2 #设置slave2节点的hostname
 - **添加hosts解析**
 ``` python
 $ cat >>/etc/hosts<<EOF
-172.21.51.143 k8s-master
-172.21.51.67 k8s-slave1
-172.21.51.68 k8s-slave2
+192.168.150.128 k8s-master
+192.168.150.129 k8s-slave1
+192.168.150.130 k8s-slave2
 EOF
 ```
 
@@ -134,7 +134,7 @@ $ mkdir -p /etc/docker
 vi /etc/docker/daemon.json
 {
   "insecure-registries": [    
-    "172.21.51.143:5000" 
+     "192.168.150.128:5000"
   ],                          
   "registry-mirrors" : [
     "https://8xpk5wnt.mirror.aliyuncs.com"
@@ -155,12 +155,17 @@ systemctl status docker
 操作节点： 所有的master和slave节点(`k8s-master,k8s-slave`) 需要执行
 ``` powershell
 $ yum install -y kubelet-1.19.8 kubeadm-1.19.8 kubectl-1.19.8 --disableexcludes=kubernetes
+
 ## 查看kubeadm 版本
 $ kubeadm version
+
 ## 设置kubelet开机启动
 $ systemctl enable kubelet 
 ```
+
+
 ### 2. 初始化配置文件
+
 操作节点： 只在master节点（`k8s-master`）执行
 ``` yaml
 $ kubeadm config print init-defaults > kubeadm.yaml
@@ -176,7 +181,7 @@ bootstrapTokens:
   - authentication
 kind: InitConfiguration
 localAPIEndpoint:
-  advertiseAddress: 172.21.51.143  # apiserver地址，因为单master，所以配置master的节点内网IP
+  advertiseAddress: 192.168.150.128  # apiserver地址，因为单master，所以配置master的节点内网IP
   bindPort: 6443
 nodeRegistration:
   criSocket: /var/run/dockershim.sock
@@ -242,7 +247,49 @@ $ kubeadm config images pull --config kubeadm.yaml
 ``` python
 $ kubeadm init --config kubeadm.yaml
 ```
+
+
+init 启动失败，the number of available CPUs 1 is less than the required 2，不得低于2C4G
+
+```
+	[ERROR NumCPU]: the number of available CPUs 1 is less than the required 2
+[preflight] If you know what you are doing, you can make a check non-fatal with `--ignore-preflight-errors=...`
+
+```
+
+
+
+启动失败Cgroup警告，官方建议设置为systemd，也可以不设置，生产需要 （三个节点要保持一致）
+
+解决方法：https://blog.whsir.com/post-5312.html
+
+```shell
+# Error
+[init] Using Kubernetes version: v1.18.2
+[preflight] Running pre-flight checks
+	[WARNING IsDockerSystemdCheck]: detected "cgroupfs" as the Docker cgroup driver. The recommended driver is "systemd". Please follow the guide at https://kubernetes.io/docs/setup/cri/
+	
+# 解决方法：设置cgroup为systemd
+[root@k8s-master ~]# vim /usr/lib/systemd/system/docker.service
+ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock --exec-opt native.cgroupdriver=systemd
+
+# 重启
+[root@k8s-master ~]# systemctl daemon-reload
+[root@k8s-master ~]# systemctl restart docker
+# 验证
+
+docker info | grep Cgroup[root@k8s-master ~]# docker info | grep Cgroup
+ Cgroup Driver: systemd
+ Cgroup Version: 1
+
+```
+
+
+
+
+
 若初始化成功后，最后会提示如下信息：
+
 ``` python
 ...
 Your Kubernetes master has initialized successfully!
@@ -357,7 +404,6 @@ $ kubectl apply -f kube-flannel.yml
 
 # 查看系统的pod，是否正常   
 # -n namespace
-kubectl -n kube-system get pods -owide
 [root@k8s-master week02]# kubectl -n kube-system get pods -owide
 NAME                                 READY   STATUS    RESTARTS   AGE     IP                NODE         NOMINATED NODE   READINESS GATES
 coredns-6d56c8448f-7zf8m             1/1     Running   0          2m59s   10.240.0.2        k8s-master   <none>           <none>
@@ -365,7 +411,18 @@ coredns-6d56c8448f-n282c             1/1     Running   0          2m59s   10.240
 ... 
 ```
 
+网络这块，`coreDns经常启动失败`，删除掉重新创建
+
+```shell
+$ kubectl -n kube-system delete pod coredns-6d56c8448f-xh7j5
+```
+
+
+
+
+
 ### 7.  设置master节点是否可调度（可选）
+
 操作节点：`k8s-master`
 
 默认部署成功后，master节点无法调度业务pod，如需设置master节点也可以参与pod的调度，需执行：
@@ -515,10 +572,13 @@ eyJhbGciOiJSUzI1NiIsImtpZCI6Ik1rb2xHWHMwbWFPMjJaRzhleGRqaExnVi1BLVNRc2txaEhETmVp
 ```powershell
 # 在全部集群节点执行
 kubeadm reset 
+
+# 删除cni0和flannel网络组件，
 ifconfig cni0 down && ip link delete cni0
 ifconfig flannel.1 down && ip link delete flannel.1
 rm -rf /run/flannel/subnet.env
 rm -rf /var/lib/cni/
+
 mv /etc/kubernetes/ /tmp
 mv /var/lib/etcd /tmp
 mv ~/.kube /tmp
@@ -528,3 +588,4 @@ ipvsadm -C
 ip link del kube-ipvs0
 ip link del dummy0
 ```
+

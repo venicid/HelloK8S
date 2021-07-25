@@ -218,7 +218,7 @@ $ kubectl create -h
 $ kubectl create namespace -h
 
 # 创建luffy
-
+[root@k8s-master ~]# kubectl create namespace luffy
 ```
 
 
@@ -550,15 +550,15 @@ $ kubectl apply -f demo-pod.yaml
   spec:
     volumes:  # 定义1个卷
     - name: mysql-data
-      hostPath: # 宿主机的目录
-        path: /opt/mysql/data
+      hostPath: 
+        path: /opt/mysql/data  # 宿主机的目录
     nodeSelector:   # 使用节点选择器将Pod调度到指定label的节点
       component: mysql  # 需要给节点，比如k8s-slave1打标签
     containers:
     - name: myblog
       image: 172.21.51.143:5000/myblog:v1
       env:
-      - name: MYSQL_HOST   #  指定root用户的用户名
+      - name: MYSQL_HOST  
         value: "127.0.0.1"
       - name: MYSQL_PASSWD
         value: "123456"
@@ -617,7 +617,7 @@ $ kubectl apply -f demo-pod.yaml
   myblog   2/2     Running   0          3m54s   10.244.1.150   k8s-slave1
   
   ## 到k8s-slave1节点，查看/opt/mysql/data
-  $ ll /opt/mysql/data/
+  $ ll /opt/mysql/
   total 188484
   -rw-r----- 1 polkitd input       56 Mar 29 09:20 auto.cnf
   -rw------- 1 polkitd input     1676 Mar 29 09:20 ca-key.pem
@@ -660,7 +660,7 @@ $ kubectl apply -f demo-pod.yaml
 两种机制：
 
 - LivenessProbe探针
-  存活性探测：用于判断容器是否存活，即Pod是否为running状态，如果LivenessProbe探针探测到容器不健康，则kubelet将kill掉容器，并根据容器的重启策略是否重启，如果一个容器不包含LivenessProbe探针，则Kubelet认为容器的LivenessProbe探针的返回值永远成功。 
+  存活性探测：`用于判断容器是否存活，即Pod是否为running状态`，如果LivenessProbe探针探测到容器不健康，则kubelet将kill掉容器，并根据容器的重启策略是否重启，如果一个容器不包含LivenessProbe探针，则Kubelet认为容器的LivenessProbe探针的返回值永远成功。 
 
   ```yaml
   ...
@@ -682,9 +682,9 @@ $ kubectl apply -f demo-pod.yaml
 
   ![](images\livenessprobe.webp)
 
-- ReadinessProbe探针
-  可用性探测：用于判断容器是否正常提供服务，即容器的Ready是否为True，是否可以接收请求，如果ReadinessProbe探测失败，则容器的Ready将为False， Endpoint Controller 控制器将此Pod的Endpoint从对应的service的Endpoint列表中移除，不再将任何请求调度此Pod上，直到下次探测成功。（剔除此pod不参与接收请求不会将流量转发给此Pod）。
-
+  - ReadinessProbe探针
+    可用性探测：`用于判断容器是否正常提供服务，即容器的Ready是否为True，`是否可以接收请求，如果ReadinessProbe探测失败，则容器的Ready将为False， Endpoint Controller 控制器将此Pod的Endpoint从对应的service的Endpoint列表中移除，不再将任何请求调度此Pod上，直到下次探测成功。（剔除此pod不参与接收请求不会将流量转发给此Pod）。
+  
   ```yaml
   ...
     containers:
@@ -701,9 +701,9 @@ $ kubectl apply -f demo-pod.yaml
   ...
   
   ```
-
   
-
+  
+  
   ![](images\readnessprobe.webp)
 
 三种类型：
@@ -716,10 +716,13 @@ $ kubectl apply -f demo-pod.yaml
 
 完整文件路径 `myblog/one-pod/pod-with-healthcheck.yaml`
 
+给mysql-myblog.yaml，添加如下配置
+
 ```yaml
+  ...
   containers:
   - name: myblog
-    image: 172.21.51.143:5000/myblog:v1
+    image: 192.168.150.128:5000/myblog:v1
     env:
     - name: MYSQL_HOST   #  指定root用户的用户名
       value: "127.0.0.1"
@@ -727,15 +730,15 @@ $ kubectl apply -f demo-pod.yaml
       value: "123456"
     ports:
     - containerPort: 8002
-    livenessProbe:
-      httpGet:
+    livenessProbe:   # 是否存活探针
+      httpGet:       # httpGet方式
         path: /blog/index/
         port: 8002
         scheme: HTTP
       initialDelaySeconds: 10  # 容器启动后第一次执行探测是需要等待多少秒
       periodSeconds: 10 	# 执行探测的频率
       timeoutSeconds: 2		# 探测超时时间
-    readinessProbe: 
+    readinessProbe:   # ready探针
       httpGet: 
         path: /blog/index/
         port: 8002
@@ -803,7 +806,7 @@ kind: Pod
 metadata:
   name: test-restart-policy
 spec:
-  restartPolicy: Always
+  restartPolicy: Always  # 重启策略
   containers:
   - name: busybox
     image: busybox
@@ -846,7 +849,7 @@ spec:
 设置镜像的拉取策略，默认为IfNotPresent
 
 - Always，总是拉取镜像，即使本地有镜像也从仓库拉取
-- IfNotPresent ，本地有则使用本地镜像，本地没有则去仓库拉取，默认策略
+- `IfNotPresent ，本地有则使用本地镜像`，本地没有则去仓库拉取，默认策略
 - Never，只使用本地镜像，本地没有则报错
 
 ###### Pod资源限制
@@ -962,7 +965,7 @@ Events:
 
 
 
-###### yaml优化
+###### yaml优化，单一pod，配置文件
 
 目前完善后的yaml，`myblog/one-pod/pod-completed.yaml`
 
@@ -1125,11 +1128,11 @@ metadata:
 spec:
   containers:
   - name: myblog
-    image: 172.21.51.143:5000/myblog:v1
+    image: 192.168.150.128:5000/myblog:v1
     imagePullPolicy: IfNotPresent
     env:
     - name: MYSQL_HOST   #  指定root用户的用户名
-      value: "172.21.51.67"
+      value: "192.168.150.128"   # 暂时填写mysql的pod的ip
     - name: MYSQL_PASSWD
       value: "123456"
     ports:
@@ -1170,7 +1173,8 @@ $ kubectl -n luffy delete po myblog
 $ kubectl create -f mysql.yaml
 $ kubectl create -f myblog.yaml
 
-## 查看pod，注意mysqlIP为宿主机IP，因为网络模式为host
+## 查看pod，
+！！注意mysqlIP为宿主机IP，因为网络模式为host
 $ kubectl -n luffy get po -o wide 
 NAME     READY   STATUS    RESTARTS   AGE   IP                NODE
 myblog   1/1     Running   0          41s   10.244.1.152      k8s-slave1
@@ -1206,7 +1210,7 @@ k8s提供两类资源，configMap和Secret，可以用来实现业务配置的�
     name: myblog
     namespace: luffy
   data:
-    MYSQL_HOST: "172.21.51.67"
+    MYSQL_HOST: "192.168.150.130"
     MYSQL_PORT: "3306"
   
   
@@ -1216,7 +1220,7 @@ k8s提供两类资源，configMap和Secret，可以用来实现业务配置的�
 
   ```powershell
   $ kubectl create -f configmap.yaml
-  $ kubectl -n luffy get cm myblog -oyaml
+  $ kubectl -n luffy get configmaps myblog -oyaml
   
   ```
 
@@ -1227,22 +1231,22 @@ k8s提供两类资源，configMap和Secret，可以用来实现业务配置的�
   ```powershell
   # 创建环境变量类型的
   $ cat configmap.txt
-  MYSQL_HOST=172.21.51.67
+  MYSQL_HOST=192.168.150.130
   MYSQL_PORT=3306
   
   # 没有设置namebase~！！！！
   $ kubectl -n luffy create configmap myblog --from-env-file=configmap.txt
   
-  # 查看
-  [root@k8s-master two-pods]# kubectl  get configmaps 
+  # 查看配置好的configmaps
+  [root@k8s-master two-pods]# kubectl -n luffy get configmaps 
   NAME     DATA   AGE
   myblog   2      113s
-  [root@k8s-master two-pods]# kubectl  describe configmaps 
+  [root@k8s-master two-pods]# kubectl -n luffy describe configmaps 
   Data
   ====
   MYSQL_HOST:
   ----
-  192.168.150.129
+  192.168.150.130
   MYSQL_PORT:
   ----
   3306
@@ -1298,38 +1302,96 @@ $ kubectl create configmap myblog --from-file=mysql.ini
   MYSQL_PASSWD=123456
   $ kubectl -n luffy create secret generic myblog --from-env-file=secret.txt 
   
-  # 查看
+  # 查看配置好的secret
   $ kubectl -n luffy describe secrte myblog
   $ kubectl -n luffy describe get secrte myblog -oyaml
   ```
 
-修改后的mysql的yaml，资源路径：`myblog/two-pod/mysql-with-config.yaml`
+- 完整的yaml文件
+
+整体修改后的mysql的yaml，资源路径：`myblog/two-pod/mysql-with-config.yaml`
 
 ```yaml
-...
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mysql
+  namespace: luffy
+  labels:
+    component: mysql
 spec:
+  hostNetwork: true   
+  volumes: 
+  - name: mysql-data
+    hostPath: 
+      path: /opt/mysql/data
+  nodeSelector:  
+    component: mysql
   containers:
   - name: mysql
+    image: mysql:5.7
     args:
     - --character-set-server=utf8mb4
     - --collation-server=utf8mb4_unicode_ci
+    ports:
+    - containerPort: 3306
     env:
+    - name: MYSQL_DATABASE
+      value: "myblog"
     - name: MYSQL_USER
       valueFrom:
         secretKeyRef:
-          name: myblog
-          key: MYSQL_USER
+          name: myblog      # secret
+          key: MYSQL_USER   # secret中的key
     - name: MYSQL_ROOT_PASSWORD
       valueFrom:
         secretKeyRef:
-          name: myblog
-          key: MYSQL_PASSWD
-    - name: MYSQL_DATABASE
-      value: "myblog"
-...
+          name: myblog        # secret
+          key: MYSQL_PASSWD   # secret中的key
+    resources:
+      requests:
+        memory: 100Mi
+        cpu: 50m
+      limits:
+        memory: 500Mi
+        cpu: 100m
+    readinessProbe:
+      tcpSocket:
+        port: 3306
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    livenessProbe:
+      tcpSocket:
+        port: 3306
+      initialDelaySeconds: 15
+      periodSeconds: 20
+    volumeMounts:
+    - name: mysql-data
+      mountPath: /var/lib/mysql
 
 
 ```
+
+启动mysql的pod，查看ip
+
+修改configMap的ip为此mysql的podIp
+
+然后编辑myblog的yaml启动
+
+!!! 问题：此时mysql的ip还是不断变化的，如何在config中配置ok的mysql的hostIp
+
+```shell
+# 删除旧的pod
+[root@k8s-master two-pod]# kubectl -n luffy delete pod mysql 
+
+# 根据scret启动新的mysql的pod，此时ip为指定的ip地址
+[root@k8s-master two-pod]# kubectl create -f mysql-with-secret.yaml 
+pod/mysql created
+```
+
+
+
+
 
 整体修改后的myblog的yaml，资源路径：`myblog/two-pod/myblog-with-config.yaml`
 
@@ -1349,24 +1411,24 @@ spec:
     env:
     - name: MYSQL_HOST
       valueFrom:
-        configMapKeyRef:
+        configMapKeyRef:   # configmap1
           name: myblog
-          key: MYSQL_HOST
+          key: MYSQL_HOST   # key
     - name: MYSQL_PORT
       valueFrom:
         configMapKeyRef:
           name: myblog
           key: MYSQL_PORT
     - name: MYSQL_USER
-      valueFrom:
-        secretKeyRef:
+      valueFrom:  
+        secretKeyRef:    # secret2
           name: myblog
-          key: MYSQL_USER
+          key: MYSQL_USER   # key
     - name: MYSQL_PASSWD
       valueFrom:
-        secretKeyRef:
+        secretKeyRef:    # secret2
           name: myblog
-          key: MYSQL_PASSWD
+          key: MYSQL_PASSWD   # key
     ports:
     - containerPort: 8002
     resources:
@@ -1395,7 +1457,9 @@ spec:
 
 ```
 
-在部署不同的环境时，pod的yaml无须再变化，只需要在每套环境中维护一套ConfigMap和Secret即可。但是注意configmap和secret不能跨namespace使用，且更新后，pod内的env不会自动更新，重建后方可更新。
+在部署不同的环境时，pod的yaml无须再变化，只需要`在每套环境中维护一套ConfigMap和Secret即可`。
+
+但是`注意configmap和secret不能跨namespace使用，且更新后，pod内的env不会自动更新，重建后方可更新`。
 
 
 
@@ -1595,7 +1659,7 @@ $ cat /tmp/loap/timing
 
 
 
-##### Pod控制器   
+##### Pod控制器 ，多个pod
 
 ###### Workload (工作负载)
 
@@ -1703,7 +1767,7 @@ spec:
     spec:
       containers:
       - name: myblog
-        image: 172.21.51.143:5000/myblog:v1
+        image: 192.168.150.128:5000/myblog:v1
         imagePullPolicy: IfNotPresent
         env:
         - name: MYSQL_HOST
@@ -1759,10 +1823,12 @@ spec:
 ###### 创建Deployment
 
 ```powershell
-$ kubectl create -f deploy.yaml
+$ kubectl create -f .
 ```
 
 > controller-manger在etcd和scheduler中开始创建pod元数据，写入etcd
+
+
 
 ```python
 # 元数据创建失败，比如，缺少serviceaccount 
@@ -1930,7 +1996,10 @@ mysql-85f4f65f99-w6jkj    1/1     Running   0          2m28s
 
 # 查看replicaSet
 $ kubectl -n luffy get rs
-
+$ kubectl -n luffy get replicasets.apps 
+NAME                DESIRED   CURRENT   READY   AGE
+myblog-77c549d66c   2         2         2       4m47s
+mysql-7446f4dc7b    1         1         1       4m47s
 ```
 
 
@@ -1940,11 +2009,21 @@ $ kubectl -n luffy get rs
 controller实时检测pod状态，并保障副本数一直处于期望的值。
 
 ```powershell
+# 观察pod
+$ kubectl get pods -o wide -w
+
 ## 删除pod，观察pod状态变化,这边删除，control-manager立即创建
 $ kubectl -n luffy delete pod myblog-7c96c9f76b-qbbg7
+先把旧的状态置为Terminate
+myblog-7c96c9f76b-qbbg7 pod  1/1 Terminating
 
-# 观察pod
-$ kubectl get pods -o wide
+同时创建新的
+myblog-77c549d66c-c25lf   0/1     Pending 
+myblog-77c549d66c-c25lf   0/1     ContainerCreating
+myblog-77c549d66c-c25lf   1/1     Running
+
+新的Runnging正常，删除旧的
+myblog-77c549d66c-hwcpj   0/1     Terminating 
 
 # 扩容
 ## 设置两个副本, 或者通过kubectl -n luffy edit deploy myblog的方式，最好通过修改文件，然后apply的方式，这样yaml文件可以保持同步
@@ -1953,7 +2032,7 @@ $ kubectl -n luffy scale deploy myblog --replicas=2
 # 缩容
 $ kubectl -n luffy scale deploy myblog --replicas=1
 
-# ⭐️推荐edit命令,编辑最新yaml副本数
+# ⭐️推荐edit命令,编辑最新yaml副本数，直接生效
 kubectl -n luffy edit deployments.apps myblog
 
 # 观察pod
@@ -1966,10 +2045,12 @@ mysql-85f4f65f99-w6jkj    1/1     Running   0          11m
 
 # 观察replicaSet
 $ kubectl -n luffy get ReplicaSet
-$ kubectl -n luffy get rs
-mysql-85f4f65f99    1/1     Running   0          11m
+[root@k8s-master demployment]# kubectl -n luffy get rs
+NAME                DESIRED   CURRENT   READY   AGE
+myblog-77c549d66c   3         3         2       11m
+mysql-7446f4dc7b    1         1         1       11m
+# NAME是77c549d66c根据deployment.yaml {image,..} 编码生成的 
 
-# 根据deployment.yaml {image,..} 编码生成 85f4f65f99
 ```
 
 ###### Pod驱逐策略
