@@ -1840,7 +1840,7 @@ I0706 01:11:02.075178       1 event.go:291] "Event occurred" object="luffy/mysql
 
 
 
-###### 生成数据中,CoreDns失败
+###### CoreDns失败生成数据中
 
 查看配置的mysql环境变量、密码
 
@@ -2326,8 +2326,8 @@ spec:
     protocol: TCP
     targetPort: 8002 
   selector:
-    app: myblog
-  type: ClusterIP 
+    app: myblog     # lable为myblog
+  type: ClusterIP   # clusterIp类型
 ```
 
 
@@ -2364,9 +2364,17 @@ Type:              ClusterIP
 IP:                10.99.174.93
 Port:              <unset>  80/TCP
 TargetPort:        8002/TCP
-Endpoints:         10.244.0.68:8002
+Endpoints:         10.244.0.6:8002,10.244.1.13:8002,10.244.2.7:8002   # 多个服务
 Session Affinity:  None
 Events:            <none>
+
+# 查看myblog的pod的IP，和endPoint一一对应
+[root@k8s-master service]# kubectl -n luffy get pod -owide
+NAME                      READY   STATUS    RESTARTS   AGE   IP                NODE         NOMINATED NODE   READINESS GATES
+myblog-77c549d66c-c25lf   1/1     Running   0          37m   10.244.0.6        k8s-master   <none>           <none>
+myblog-77c549d66c-nm55v   1/1     Running   0          42m   10.244.1.13       k8s-slave2   <none>           <none>
+myblog-77c549d66c-tj2ph   1/1     Running   0          31m   10.244.2.7        k8s-slave1   <none>           <none>
+mysql-7446f4dc7b-t9tdz    1/1     Running   0          42m   192.168.150.130   k8s-slave2   <none>           <none>
 
 ## 扩容myblog服务
 $ kd scale deploy myblog --replicas=2
@@ -2388,12 +2396,16 @@ Session Affinity:  None
 Events:            <none>
 
 # 访问
-[root@k8s-master week02]# curl 10.98.231.16:80
+[root@k8s-master service]# curl 10.106.19.108:80/blog/index/
+
 ```
 
 Service与Pod如何关联:
 
-service对象创建的同时，会`创建同名的endpoints对象`，若服务设置了readinessProbe, 当`readinessProbe检测`失败时，endpoints列表中会剔除掉对应的pod_ip，这样流量就不会分发到健康检测失败的Pod中
+service对象创建的同时，会`创建同名的endpoints对象`.
+若服务设置了readinessProbe, 当`readinessProbe检测`失败时，endpoints列表中会剔除掉对应的pod_ip，这样流量就不会分发到健康检测失败的Pod中
+
+readinessProbe检测-----endpoints列表添加
 
 ```powershell
 $ kd get endpoints myblog
@@ -2423,11 +2435,9 @@ TargetPort:        8002/TCP
 Endpoints:         10.240.1.32:8002,10.240.1.33:8002
 
 $ curl 10.99.174.93/blog/index/
-
-
 ```
 
-为外部应用创建servcie，模拟service的yaml，替换自己的ip
+实践：为外部应用创建servcie，模拟service的yaml，替换自己的ip
 
 ```
 [root@k8s-master ~]# kubectl -n luffy get endpoints -oyaml
@@ -2464,32 +2474,42 @@ spec:
 访问mysql：
 
 ```powershell
-[root@k8s-master week02]# kubectl -n luffy get service
+# 查看mysql的servcie
+[root@k8s-master service]# kubectl -n luffy get svc
+NAME     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+mysql    ClusterIP   10.110.219.82   <none>        3306/TCP   6s
+[root@k8s-master service]# kubectl -n luffy describe service mysql 
+IP:                10.110.219.82
+Port:              <unset>  3306/TCP
+TargetPort:        3306/TCP
+Endpoints:         192.168.150.130:3306
 
-$ kd get svc mysql
-mysql    ClusterIP   10.108.214.84   <none>        3306/TCP   3s
 
+# 查看endpoints端点
 [root@k8s-master week02]# kubectl -n luffy get endpoints
+NAME     ENDPOINTS                                          AGE
+myblog   10.244.0.6:8002,10.244.1.13:8002,10.244.2.7:8002   6m9s
+mysql    192.168.150.130:3306                               90s
 
 [root@k8s-master week02]# kubectl -n luffy get po -owide
 
-
-$ curl 10.108.214.84:3306
+# 访问
+$ curl 192.168.150.130:3306
 ```
 
-目前使用hostNetwork部署，通过宿主机ip+port访问，弊端：
+目前使用hostNetwork部署，通过`宿主机ip+port访问，存在弊端`：
 
 - 服务使用hostNetwork，使得宿主机的端口大量暴漏，存在安全隐患
 - 容易引发端口冲突
 
 服务均属于k8s集群，尽可能使用k8s的网络访问，因此可以对目前myblog访问mysql的方式做改造：
 
-- 为mysql创建一个固定clusterIp的Service，把clusterIp配置在myblog的环境变量中
-- 利用集群服务发现的能力，组件之间通过service name来访问
+- 为mysql创建一个固定clusterIp的Service，`把clusterIp配置在myblog的环境变量中`
+- 利用集群服务发现的能力，`组件之间通过service name来访问`
 
 
 
-###### 服务发现
+###### 服务发现，curl mysql:3306
 
 在k8s集群中，组件之间可以`通过定义的Service名称实现通信`。
 
@@ -2518,6 +2538,7 @@ MYSQL_PASSWD=123456
 [root@k8s-master week02]# curl 10.109.239.70:3306
 5.7.34тj({7l\ÿÿ󾃿󿿕}=~;-~%j0]|mysql_native_password!ÿ#08S01Got
 
+# 此时也可以通过serveicName访问
 [root@myblog-5c97d79cdb-j485f myblog]# curl mysql:3306
 5.7.29 )→  (mysql_native_password ot packets out of order
 
@@ -2532,10 +2553,14 @@ MYSQL_PASSWD=123456
 <h3>我的博客列表：</h3>
 ```
 
-虽然podip和clusterip都不固定，但是`service name是固定的，而且具有完全的跨集群可移植性`，因此组件之间调用的同时，完全可以通过service name去通信，这样避免了大量的ip维护成本，使得服务的yaml模板更加简单。因此可以对mysql和myblog的部署进行优化改造：
+虽然podip和clusterip都不固定，但是`service name是固定的，而且具有完全的跨集群可移植性`，因此组件之间调用的同时，完全可以通过service name去通信，这样避免了大量的ip维护成本，使得服务的yaml模板更加简单。
 
-1. mysql可以去掉hostNetwork部署，使得服务只暴漏在k8s集群内部网络
-2. configMap中数据库地址可以换成Service名称，这样跨环境的时候，配置内容基本上可以保持不用变化
+>因此可以对mysql和myblog的部署进行优化改造：
+>
+>1. mysql可以去掉hostNetwork部署，使得服务只暴漏在k8s集群内部网络
+>2. configMap中数据库地址可以换成Service名称，这样跨环境的时候，配置内容基本上可以保持不用变化
+
+
 
 修改deploy-mysql.yaml
 
@@ -2555,6 +2580,7 @@ MYSQL_PASSWD=123456
 ```
 
 修改configmap.yaml
+使得mysql的ip不在固定
 
 ```yaml
 [root@k8s-master deployment]# kubectl -n luffy edit configmaps  myblog
@@ -2574,7 +2600,7 @@ data:
 
 ```powershell
 $ kubectl delete -f deployment-mysql.yaml
-
+$  kubectl create -f delpy-mysql.yaml
 ## myblog不用动，会自动因健康检测不过而重启
 ```
 
@@ -2744,13 +2770,13 @@ I0717 02:58:19.892945       1 server_others.go:186] Using iptables Proxier.
 
 
 
-正在使用iptables模式
+- **正在使用iptables模式**
 
 Nat地址转换协议
 
 ```shell
 # iptable的连接链
-# clusterIp ---> 原地址ip
+# clusterIp ---->KUBE-SVC -->KUBE-SVC --> 原地址ip
 
 # culsterIp可以访问
 [root@k8s-slave1 ~]# curl 10.111.241.25:3306
@@ -2808,6 +2834,8 @@ iptables模式下是不通的
 >
 > clusterIp只是个ip地址，clusterIp和原地址是通过iptables的NAT转换的，iptables都是tcp协议的
 
+ipvs模式是通的
+
 
 
 
@@ -2826,6 +2854,7 @@ for kernel_module in \${ipvs_modules}; do
     fi
 done
 EOF
+
 chmod 755 /etc/sysconfig/modules/ipvs.modules && bash /etc/sysconfig/modules/ipvs.modules && lsmod | grep ip_vs
 
 # 安装ipvsadm工具
@@ -2878,7 +2907,7 @@ PING 10.111.241.25 (10.111.241.25) 56(84) bytes of data.
 64 bytes from 10.111.241.25: icmp_seq=2 ttl=64 time=0.057 ms
 ```
 
-有个网卡绑定到该ip上面
+有个网卡`kube-ipvs0`绑定到该ip上面
 
 ```js
 [root@k8s-master ~]# ip ad
@@ -2981,7 +3010,7 @@ $ grep -n5 nodeSelector mandatory.yaml
 ```powershell
 # 为k8s-master节点添加label
 $ kubectl label node k8s-master ingress=true
-
+[root@k8s-master service]# kubectl get node --show-labels 
 # 创建pod
 $ kubectl apply -f mandatory.yaml
 namespace/ingress-nginx created
@@ -3174,6 +3203,28 @@ $  kubectl -n ingress-nginx exec -ti nginx-ingress-controller-7659f85d5d-n7tf9 b
 
 然后，访问 http://myblog.luffy.com/blog/index/
 
+浏览器访问失败，刷新dns
+
+```
+C:\Users\hua'wei>ipconfig /flushdns
+Windows IP 配置
+已成功刷新 DNS 解析缓存。
+
+C:\Users\hua'wei>ipconfig /displaydns
+```
+
+
+
+访问失败，可以使用cmd去访问
+
+```
+ping 192.168.150.128
+curl 192.168.150.128
+curl myblog.luffy.com
+```
+
+
+
 
 
 HTTPS访问：
@@ -3299,6 +3350,7 @@ curl nginx.luffy.com/api/v1
 实现：
 
 ```powershell
+# nginx1
 $ cat nginx-v1-dpl.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -3320,6 +3372,7 @@ spec:
         name: nginx-v1
         command: ["/bin/sh", "-c", "echo 'this is nginx-v1'>/usr/share/nginx/html/index.html;nginx -g 'daemon off;'"]
 
+# nginx-servcie
 $ cat nginx-v1-svc.yaml
 apiVersion: v1
 kind: Service
@@ -3363,6 +3416,7 @@ nginx-v2-6f967c65cf-r9869   1/1    Running   0          9s      10.240.1.22   k8
 NAME        TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
 nginx-v1    ClusterIP   10.103.232.75   <none>        80/TCP         3m12s
 nginx-v2    ClusterIP   10.103.179.58   <none>        80/TCP         14s
+[root@k8s-master ingress]# kubectl -n luffy get endpoints
 
 
 # 访问v1v2
@@ -3404,6 +3458,7 @@ spec:
               number: 80
 
 # 生成ingress
+[root@k8s-master ingress]# kubectl apply -f ingress-rewrite.yaml
 [root@k8s-master rewrite]# kubectl -n luffy get ing
 Warning: extensions/v1beta1 Ingress is deprecated in v1.14+, unavailable in v1.22+; use networking.k8s.io/v1 Ingress
 NAME            CLASS    HOSTS              ADDRESS   PORTS     AGE
@@ -3429,9 +3484,16 @@ C:\Windows\System32\drivers\etc\hosts
 192.168.150.128 myblog.luffy.com nginx.luffy.com
 
 
-# 访问测试
+# 访问测试，
 $ http://nginx.luffy.com/api/v1/
 $ http://nginx.luffy.com/api/v2/
+
+# 也可以用cmd访问
+C:\Users\hua'wei>curl http://nginx.luffy.com/api/v1/
+this is nginx-v1
+C:\Users\hua'wei>curl http://nginx.luffy.com/api/v2/
+this is nginx-v2
+
 ```
 
 

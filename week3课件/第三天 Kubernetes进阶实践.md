@@ -180,7 +180,11 @@ Events:          <none>
    ```powershell
    $ etcdctl snapshot restore `hostname`-etcd_`date +%Y%m%d%H%M`.db --data-dir=/var/lib/etcd/
    
+   # 此时 /var/lib/etcd 已经恢复ok
    [root@k8s-master ~]# etcdctl snapshot restore k8s-master-etcd_202107172103.db --data-dir /var/lib/etcd
+   
+   [root@k8s-master ~]# mv /opt/manifests/ /etc/kubernetes/ 
+   
    
    ```
 
@@ -213,6 +217,7 @@ Events:          <none>
   [root@k8s-master week03]# kubectl get namespaces 
   [root@k8s-master week03]# etcdctl get /registry/namespaces --prefix  --keys-only
   
+  # delete
   [root@k8s-master week03]# etcdctl del /registry/namespaces/jack
   1
   ```
@@ -310,7 +315,8 @@ Pod -> Node的标签
 > 如果有节点满足disktype=ssd或者sas的话就优先调度到这类节点上
 
 ```yaml
-#要求 Pod 不能运行在128和132两个节点上，如果有节点满足disktype=ssd或者sas的话就优先调度到这类节点上
+#要求 Pod 不能运行在128和132两个节点上，
+# 如果有节点满足disktype=ssd或者sas的话就优先调度到这类节点上
 ...
 spec:
       containers:
@@ -324,7 +330,7 @@ spec:
                 nodeSelectorTerms:
                 - matchExpressions:
                     - key: kubernetes.io/hostname
-                      operator: NotIn
+                      operator: NotIn    # 不能在下面的节点
                       values:
                         - 192.168.136.128
                         - 192.168.136.132
@@ -333,7 +339,7 @@ spec:
                 - weight: 1
                   preference:
                     matchExpressions:
-                    - key: disktype
+                    - key: disktype    # 优先匹配disktype=ssd或sas节点
                       operator: In
                       values:
                         - ssd
@@ -371,8 +377,8 @@ pod --> pod的标签
 ...
     spec:
       affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
+        podAntiAffinity:  # anti不要
+          requiredDuringSchedulingIgnoredDuringExecution:  # requried一定
           - labelSelector:
               matchExpressions:
               - key: app
@@ -387,8 +393,8 @@ pod --> pod的标签
 ...
     spec:
       affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
+        podAntiAffinity:  # anti不要
+          preferredDuringSchedulingIgnoredDuringExecution:  #prefer尽量
           - weight: 100
             podAffinityTerm:
               labelSelector:
@@ -409,9 +415,9 @@ pod --> pod的标签
 实践
 
 ```shell
-# 编辑myblog的调度器，与container同级
+# 编辑myblog的调度器，
 [root@k8s-master week03]# kubectl -n luffy edit deployments.apps myblog
-deployment.apps/myblog edited
+添加上述规则，与container同级
 
 # 手动扩容
 [root@k8s-master week03]# kubectl -n luffy scale deployment myblog --replicas=4
@@ -427,6 +433,11 @@ myblog-7f6d7ff58c-tz4g4     0/1     Pending             2          3m4s   10.240
 # 查看信息，not match pod 
 [root@k8s-master week03]# kubectl -n luffy describe pod myblog-7f6d7ff58c-tz4g4 
 0/3 nodes are available: 3 node(s) did not match pod affinity/anti-affinity rules
+
+# 演示完删除pod
+[root@k8s-master week03]# kubectl -n luffy delete pod myblog-97d887bc9-kdn6m 
+pod "myblog-97d887bc9-kdn6m" deleted
+
 ```
 
 
@@ -485,9 +496,10 @@ $ kubectl taint node k8s-master gamble=true:NoSchedule
 $ kubectl taint node k8s-slave1 drunk=true:NoSchedule
 $ kubectl taint node k8s-slave2 smoke=true:NoSchedule
 
+# 如何查看taint
 
 ## 扩容myblog的Pod，观察新Pod的调度情况
-$ kuebctl -n luffy scale deploy myblog --replicas=3
+$ kubectl -n luffy scale deploy myblog --replicas=3
 $ kubectl -n luffy get po -w    ## pending
 myblog-7f6d7ff58c-rkc8n     0/1     Pending            0          33s   <none>        <none>       <none>           <none>
 
@@ -495,11 +507,13 @@ myblog-7f6d7ff58c-rkc8n     0/1     Pending            0          33s   <none>  
 
 ![image-20210718105043560](第三天 Kubernetes进阶实践.assets/image-20210718105043560.png)
 
-Pod容忍污点示例：`myblog/deployment/deploy-myblog-taint.yaml`
+Pod容忍污点示例：`myblog/deployment/deploy-myblog-taint.yaml`:
+
+实验1：NoSchedule
 
 ```powershell
 ...
-spec:
+    spec:
       containers:
       - name: demo
         image: 172.21.51.143:5000/myblog:v1
@@ -520,17 +534,20 @@ $ kubectl apply -f deploy-myblog-taint.yaml
 ```
 
 
-实践验证2
+
+实践验证2：Exists
 
 修改deployment
 
-```
+```shell
  [root@k8s-master week03]# kubectl -n luffy edit deployments.apps myblog
+ ...
     spec:
       tolerations: 
       - key: "drunk"  
         operator: "Exists"  
       containers:
+ ...
 ```
 
 rollingupdate滚动更新，重新调度
@@ -812,7 +829,7 @@ $ ip -d link show vxlan20
 # 查看fdb地址表，主要由MAC地址、VLAN号、端口号和一些标志域等信息组成,vtep 对端地址为 172.21.51.55，换句话说，如果接收到的报文添加上 vxlan 头部之后都会发到 172.21.51.55
 $ bridge fdb show dev vxlan20
 00:00:00:00:00:00 dst 172.21.52.84 via eth0 self permanent
-a6:61:05:84:20:c6 dst 172.21.52.84 self
+a6:61:05:84:20:c6 dst 172.21.52.84 self  # a6:61:05:84:20:c6为对端的网卡的mac
 
 
 ```
@@ -1086,6 +1103,7 @@ $ kubectl -n luffy get po -o wide
 myblog-5d9ff54d4b-4rftt   1/1     Running   1          25h    10.244.2.19   k8s-slave2
 myblog-5d9ff54d4b-n447p   1/1     Running   1          25h    10.244.1.32   k8s-slave1
 
+# 追踪pod的流量如何从k8s-slave1 ---》  k8s-slave2
 $ kubectl -n luffy exec myblog-5d9ff54d4b-n447p -- ping 10.244.2.19 -c 2
 PING 10.244.2.19 (10.244.2.19) 56(84) bytes of data.
 64 bytes from 10.244.2.19: icmp_seq=1 ttl=62 time=0.480 ms
@@ -1099,10 +1117,10 @@ $ kubectl -n luffy exec myblog-5d9ff54d4b-n447p -- route -n
 Kernel IP routing table
 Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 0.0.0.0         10.244.1.1      0.0.0.0         UG    0      0        0 eth0 # 访问外网的规则
-10.244.0.0      10.244.1.1      255.255.0.0     UG    0      0        0 eth0 # 走宿主机网络的网桥cni0，访问除了本机的，flannel的其他网桥
+10.244.0.0(目标)      10.244.1.1      255.255.0.0     UG    0      0        0 eth0 # 走宿主机网络的网桥cni0，访问除了本机的，flannel的其他网桥
 10.244.1.0      0.0.0.0         255.255.255.0   U     0      0        0 eth0 # 访问本机的服务，本机的cni0
 
-# 查看k8s-slave1 的veth pair 和新的网桥 cni0
+# 查看本机k8s-slave1 的veth pair 和新的网桥 cni0
 $ brctl show
 bridge name     bridge id               STP enabled     interfaces
 cni0            8000.6a9a0b341d88       no              veth048cc253
@@ -1110,15 +1128,15 @@ cni0            8000.6a9a0b341d88       no              veth048cc253
                                                         vetha4c972e1
 docker0		8000.02421587bebb	no		veth4cfa483
 
-# 流量到了cni0后，查看slave1节点的route
+# 流量到了cni0后，查看本机slave1节点的route
 $ route -n
 Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 0.0.0.0         192.168.136.2   0.0.0.0         UG    100    0        0 eth0
 10.0.136.0      0.0.0.0         255.255.255.0   U     0      0        0 vxlan20
 10.244.0.0      10.244.0.0      255.255.255.0   UG    0      0        0 flannel.1 
-10.244.1.0      0.0.0.0         255.255.255.0   U     0      0        0 cni0   # 进
-10.244.2.0      10.244.2.0      255.255.255.0   UG    0      0        0 flannel.1  # 出
-172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
+10.244.1.0      0.0.0.0         255.255.255.0   U     0      0        0 cni0 # 进<---pod
+10.244.2.0(目标)  10.244.2.0      255.255.255.0   UG    0      0        0 flannel.1 # 出-->
+ 172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
 192.168.136.0   0.0.0.0         255.255.255.0   U     100    0        0 eth0
 
 # 流量转发到了flannel.1网卡，查看该网卡，其实是vtep设备
@@ -1133,12 +1151,14 @@ $ bridge fdb show dev flannel.1
 4a:4d:9d:3a:c5:f0 dst 172.21.51.68 self permanent
 76:e7:98:9f:5b:e9 dst 172.21.51.67 self permanent
 
-# 对端的vtep设备接收到请求后做解包，取出源payload内容，查看k8s-slave2的路由
+
+# 对端slave2的vtep设备接收到请求后做解包，取出源payload内容，
+# 查看k8s-slave2的路由
 $ route -n
 Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 0.0.0.0         172.21.50.140   0.0.0.0         UG    0      0        0 eth0
-10.244.0.0      0.0.0.0         255.255.255.0   U     0      0        0 cni0
-10.244.1.0      10.244.1.0      255.255.255.0   UG    0      0        0 flannel.1
+10.244.0.0      0.0.0.0         255.255.255.0   U     0      0        0 cni0 # --》pod
+10.244.1.0      10.244.1.0      255.255.255.0   UG    0      0        0 flannel.1 # 《==
 10.244.2.0      10.244.2.0      255.255.255.0   UG    0      0        0 flannel.1
 169.254.0.0     0.0.0.0         255.255.0.0     U     1002   0        0 eth0
 172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
@@ -1206,8 +1226,6 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
 
 
-
-
 ###### 利用host-gw模式提升集群网络性能
 
 `vxlan模式`适用于三层可达的网络环境，对集群的网络要求很宽松，但是同时由于会`通过VTEP设备进行额外封包和解包`，因此`给性能带来了额外的开销`。
@@ -1260,7 +1278,7 @@ I0704 01:18:11.916374       1 kube.go:126] Waiting 10m0s for node controller to 
 I0704 01:18:11.916579       1 kube.go:309] Starting kube subnet manager
 I0704 01:18:12.917339       1 kube.go:133] Node controller sync successful
 I0704 01:18:12.917848       1 main.go:247] Installing signal handlers
-I0704 01:18:12.918569       1 main.go:386] Found network config - Backend type: host-gw
+I0704 01:18:12.918569       1 main.go:386] Found network config - `Backend type: host-gw`
 I0704 01:18:13.017841       1 main.go:317] Wrote subnet file to /run/flannel/subnet.env
 
 ```
@@ -1273,9 +1291,9 @@ I0704 01:18:13.017841       1 main.go:317] Wrote subnet file to /run/flannel/sub
 $ route -n 
 Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 0.0.0.0         192.168.136.2   0.0.0.0         UG    100    0        0 eth0
-10.244.0.0      0.0.0.0         255.255.255.0   U     0      0        0 cni0
+10.244.0.0      0.0.0.0         255.255.255.0   U     0      0        0 cni0  # 《=== pod
 10.244.1.0      172.21.51.68  255.255.255.0   UG    0      0        0 eth0
-10.244.2.0      172.21.51.55  255.255.255.0   UG    0      0        0 eth0
+10.244.2.0      172.21.51.55  255.255.255.0   UG    0      0        0 eth0  # ===》出
 172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
 192.168.136.0   0.0.0.0         255.255.255.0   U     100    0        0 eth0
 
@@ -1486,13 +1504,17 @@ kubeadm在init初始引导集群启动过程中，创建了许多默认的RBAC�
 我们查看一下这一binding：
 
 ```yaml
+# cluster-admin的clusterrolebinding
+# 将下面两个绑定在一起
+# role为cluster-admin的
+# Group为system:masters的
 $ kubectl describe clusterrolebinding cluster-admin
 Name:         cluster-admin
 Labels:       kubernetes.io/bootstrapping=rbac-defaults
 Annotations:  rbac.authorization.kubernetes.io/autoupdate: true
 Role:
   Kind:  ClusterRole
-  Name:  cluster-admin
+  Name:  cluster-admin  
 Subjects:
   Kind   Name            Namespace
   ----   ----            ---------
@@ -1507,6 +1529,7 @@ Subjects:
 我们再来查看一下cluster-admin这个role的具体权限信息：
 
 ```powershell
+# 查看role是cluster-admin的具体权限
 $ kubectl describe clusterrole cluster-admin
 Name:         cluster-admin
 Labels:       kubernetes.io/bootstrapping=rbac-defaults
@@ -1523,10 +1546,10 @@ PolicyRule:
 ![](images/how-kubectl-be-authorized.png)
 
 ```shell
-# 查看所有的clusterrole
+# 查看所有的clusterrole集群角色
 [root@k8s-master ~]# kubectl get clusterrole
 
-# 查看cluster-admin的配置权限
+# 查看role为cluster-admin的配置权限
 [root@k8s-master ~]# kubectl get clusterrole cluster-admin -oyaml
 rules:
 - apiGroups:
@@ -1541,10 +1564,10 @@ rules:
   - '*'
 
 
-# 查看所有的clusterrolebinding
+# 查看所有的role角色的绑定clusterrolebinding
 [root@k8s-master ~]# kubectl get clusterrolebindings.rbac.authorization.k8s.io
 
-# 查看cluser-admin的配置权限
+# 查看role为cluser-admin的绑定权限
 [root@k8s-master ~]# kubectl get clusterrolebindings.rbac.authorization.k8s.io   cluster-admin -oyaml
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -1857,11 +1880,11 @@ metadata:
     rbac.authorization.kubernetes.io/autoupdate: "true"
 roleRef:
   kind: ClusterRole
-  name: cluster-admin  # 
+  name: cluster-admin   # 把cluster-admin的权限给了ServiceAccount
   apiGroup: rbac.authorization.k8s.io
 subjects:
 - kind: ServiceAccount  
-  name: admin    # admin给了cluster-admin的权限
+  name: admin    
   namespace: kubernetes-dashboard
 ```
 
@@ -1872,11 +1895,11 @@ subjects:
 $ kubectl apply -f serviceaccount.conf
 
 # 查看account
-$  kubectl -n kubernetes-dashboard get serviceaccounts 
+$ kubectl -n kubernetes-dashboard get serviceaccounts
 [root@k8s-master week03]# kubectl -n kubernetes-dashboard describe sa admin 
 
 # 查看admin的serviceAccount
-$ kubectl -n kubernetes-dashboard get sa admin -o yaml
+$ kubectl -n kubernetes-dashboard get serviceaccounts admin -oyaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -1942,8 +1965,8 @@ k8s-slave2   Ready    <none>   2d13h   v1.19.8
   },
   "code": 403
 
-# 携带token访问
-$ curl -k  -H "" https://192.168.150.128:6443/api/v1/nodes?limit=500
+# 携带token访问，好像访问失败， 添加Authorization: Bearer
+$ curl -k  -H "Authorization: Bearer xxxxx" https://192.168.150.128:6443/api/v1/nodes?limit=500
 ```
 
 
@@ -1999,14 +2022,16 @@ kubectl apply -f  luffy-admin
 演示权限：
 
 ```powershell
+[root@k8s-master week03]# kubectl -n luffy get secrets 
 $ kubectl -n luffy describe secrets luffy-pods-admin-token-prr25
 ...
 token:      eyJhbGciOiJSUzI1NiIsImtpZCI6InBtQUZfRl8ycC03TTBYaUUwTnJVZGpvQWU0cXZ5M2FFbjR2ZjkzZVcxOE0ifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJsdWZmeSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJsdWZmeS1hZG1pbi10b2tlbi1wcnIyNSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJsdWZmeS1hZG1pbiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6ImFhZDA0MTU3LTliNzMtNDJhZC1hMGU4LWVmOTZlZDU3Yzg1ZiIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDpsdWZmeTpsdWZmeS1hZG1pbiJ9.YWckylE5wlKITKrVltXY4VPKvZP9ar5quIT5zq9N-0_FnDkLIBX7xOyFvZA5Wef0wSFSZe3e9FwrO1UbPsmK7cZn74bhH8cNdoH_YVbIVT3-6tIOlCA_Bc8YypGE1gl-ZvLOIPV7WnRQsWpWtZtqfKBSkwLAHgWoxcx_d1bOcyTOdPmsW224xcBxjYwi6iRUtjTJST0LzOcAOCPDZq6-lqYUwnxLO_afxwg71BGX4etE48Iny8TxSEIs1VJRahoabC7hVOs17ujEm5loTDSpfuhae51qSDg8xeYwRHdM42aLUmc-wOvBWauHa5EHbH9rWPAnpaGIwF8QvnLszqp4QQ
 
 
 # 直接访问失败
-# 添加token访问k8s-api，能拿到数据
-$ curl -k  -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6InBtQUZfRl8ycC03TTBYaUUwTnJVZGpvQWU0cXZ5M2FFbjR2ZjkzZVcxOE0ifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJsdWZmeSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJsdWZmeS1hZG1pbi10b2tlbi1wcnIyNSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJsdWZmeS1hZG1pbiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6ImFhZDA0MTU3LTliNzMtNDJhZC1hMGU4LWVmOTZlZDU3Yzg1ZiIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDpsdWZmeTpsdWZmeS1hZG1pbiJ9.YWckylE5wlKITKrVltXY4VPKvZP9ar5quIT5zq9N-0_FnDkLIBX7xOyFvZA5Wef0wSFSZe3e9FwrO1UbPsmK7cZn74bhH8cNdoH_YVbIVT3-6tIOlCA_Bc8YypGE1gl-ZvLOIPV7WnRQsWpWtZtqfKBSkwLAHgWoxcx_d1bOcyTOdPmsW224xcBxjYwi6iRUtjTJST0LzOcAOCPDZq6-lqYUwnxLO_afxwg71BGX4etE48Iny8TxSEIs1VJRahoabC7hVOs17ujEm5loTDSpfuhae51qSDg8xeYwRHdM42aLUmc-wOvBWauHa5EHbH9rWPAnpaGIwF8QvnLszqp4QQ" https://172.21.51.143:6443/api/v1/namespaces/luffy/pods?limit=500
+# 添加token访问k8s-api，能拿到数据，好像也访问失败，添加Authorization: Bearer
+$ curl -k  -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IncxT25Kak5mNDdJMVFnaGM2aHpWYVRlNGRKbTdqbDV4TjZqVkZGREdVRk0ifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJsdWZmeSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJsdWZmeS1wb2RzLWFkbWluLXRva2VuLWN4Y202Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZXJ2aWNlLWFjY291bnQubmFtZSI6Imx1ZmZ5LXBvZHMtYWRtaW4iLCJrdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3NlcnZpY2UtYWNjb3VudC51aWQiOiI5Yjk0MjY0OC0xOGNhLTQ3YzItYTRlNy1kMzViZDZhMTllOTYiLCJzdWIiOiJzeXN0ZW06c2VydmljZWFjY291bnQ6bHVmZnk6bHVmZnktcG9kcy1hZG1pbiJ9.feh_nlpPnLo49aKFhBjZg61U4mS1yVbsB3o4npmTeSnqme_h6I54V0jIi8YzMkJ20gKZ4wXxn4G5lOHgRTifGTTjWvSJki61O2FVQyRzdhFh47FvxYcGB2LYY3QGDAERJfHnYzBIvyUrZS4RBiXbLP32O61snwCcdy9tMIM3A7BZtEgd-n1M2W538MMMB0ff-Z1A46xRyaicJylToirWgZR9tuv6dtMNF0ChBEN8buLxZyJNEjVwjTJuj5Hc91iBlvmWjsu4yBo9iHRx7-z5aZBux-3EbNBl7_IJr8j9n9QVP9Pql_zh8lfNW8UZmxtdIbColBwu31IBUAchKqrudQ" https://192.168.150.128:6443/api/v1/namespaces/luffy/pods?limit=500
+
 
 # https://172.21.51.143:6443/api/v1/nodes
 ```
@@ -2025,20 +2050,29 @@ $ openssl genrsa -out luffy.key 2048
 $ openssl req -new -key luffy.key -out luffy.csr -subj "/O=admin:luffy/CN=luffy-admin"
 
 # 证书拓展属性
-$ cat extfile.conf
+$ vim extfile.conf
 [ v3_ca ]
 keyUsage = critical, digitalSignature, keyEncipherment
 extendedKeyUsage = clientAuth
 
 # 生成luffy.crt证书
 $ openssl x509 -req -in luffy.csr -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial -sha256 -out luffy.crt -extensions v3_ca -extfile extfile.conf -days 3650
+
+# 查看生成的证书
+[root@k8s-master week03]# ll
+total 4196
+-rw-r--r-- 1 root root    1074 Jul 26 10:48 luffy.crt
+-rw-r--r-- 1 root root     924 Jul 26 10:47 luffy.csr
+-rw-r--r-- 1 root root    1679 Jul 26 10:47 luffy.key
+
+
 ```
 
 配置kubeconfig文件：
 
 ```powershell
 # 创建kubeconfig文件，指定集群名称和地址，指定自己的master
-$ kubectl config set-cluster luffy-cluster --certificate-authority=/etc/kubernetes/pki/ca.crt --embed-certs=true --server=https://172.21.51.143:6443 --kubeconfig=luffy.kubeconfig
+$ kubectl config set-cluster luffy-cluster --certificate-authority=/etc/kubernetes/pki/ca.crt --embed-certs=true --server=https://192.168.150.128:6443 --kubeconfig=luffy.kubeconfig
 
 # 为kubeconfig文件添加认证信息
 $ kubectl config set-credentials luffy-admin --client-certificate=luffy.crt --client-key=luffy.key --embed-certs=true --kubeconfig=luffy.kubeconfig
@@ -2056,10 +2090,10 @@ $ kubectl config use-context luffy-context --kubeconfig=luffy.kubeconfig
 
 ```powershell
 # 设置当前kubectl使用的config文件
-$ export KUBECONFIG=/home/redhat/week03/luffy.kubeconfig
+$ export KUBECONFIG=/home/redhat/k8s/week03/luffy.kubeconfig
 
 # 当前不具有任何权限，因为没有为用户或者组设置RBAC规则
-$ kubectl get po
+$ kubectl get po -n luffy
 Error from server (Forbidden): pods is forbidden: User "luffy-admin" cannot list resource "pods" in API group "" in the namespace "default"
 
 ```
@@ -2110,7 +2144,7 @@ kubectl apply -f .
 
 ```
 export KUBECONFIG=luffy.kubeconfig
-kubcetl -n luffy get pod
+kubectl -n luffy get pod
 ```
 
 
@@ -2235,7 +2269,7 @@ $ wget https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.4.
 134         - --kubelet-insecure-tls
 135         - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
 136         - --kubelet-use-node-status-port
-137         image: willdockerhub/metrics-server:v0.4.4
+137         image: willdockerhub/metrics-server:v0.4.4  
 138         imagePullPolicy: IfNotPresent
 ...
 ```
@@ -2250,6 +2284,7 @@ NAME                                 READY   STATUS              RESTARTS   AGE 
 
 metrics-server-64cc7c9446-d6vd5      0/1     ContainerCreating   0          14s     <none>            k8s-slave2   <none>           <none>
 
+## 拉取镜像太慢了
 $ kubectl -n kube-system logs -f mertric-xxxxx
 
 # 查看pod的监控数据
@@ -2275,7 +2310,7 @@ $ kubectl top nodes
 $ kubectl -n kubernetes-dashboard describe secret admin-toke-dfa
 $ curl -k  -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6InhXcmtaSG5ZODF1TVJ6dUcycnRLT2c4U3ZncVdoVjlLaVRxNG1wZ0pqVmcifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlcm5ldGVzLWRhc2hib2FyZCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJhZG1pbi10b2tlbi1xNXBueiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJhZG1pbiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6ImViZDg2ODZjLWZkYzAtNDRlZC04NmZlLTY5ZmE0ZTE1YjBmMCIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDprdWJlcm5ldGVzLWRhc2hib2FyZDphZG1pbiJ9.iEIVMWg2mHPD88GQ2i4uc_60K4o17e39tN0VI_Q_s3TrRS8hmpi0pkEaN88igEKZm95Qf1qcN9J5W5eqOmcK2SN83Dd9dyGAGxuNAdEwi0i73weFHHsjDqokl9_4RGbHT5lRY46BbIGADIphcTeVbCggI6T_V9zBbtl8dcmsd-lD_6c6uC2INtPyIfz1FplynkjEVLapp_45aXZ9IMy76ljNSA8Uc061Uys6PD3IXsUD5JJfdm7lAt0F7rn9SdX1q10F2lIHYCMcCcfEpLr4Vkymxb4IU4RCR8BsMOPIO_yfRVeYZkG4gU2C47KwxpLsJRrTUcUXJktSEPdeYYXf9w" https://localhost:10250/metrics
 
-curl -k -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IlhyRV9WUHFUSVpPaHM5NFZBRFlKX1hCSjFMQnE5b3JTa05CMWZ0bjBrdVEifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlcm5ldGVzLWRhc2hib2FyZCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJhZG1pbi10b2tlbi10c3ZqbSIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJhZG1pbiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6IjA0NDliMzU3LWEwODEtNGUyYS05MDhiLTBhNDAwZDViYjg2MyIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDprdWJlcm5ldGVzLWRhc2hib2FyZDphZG1pbiJ9.dN8jOLkLs8NSV6isZuuxjjETMUkpJhLIpq8p9ob9gHpV-6Si9Dw9cCW0d8zlIqJ0FZJM5f0zUc7xYxcQzCO6ixfMjpkM6PEjPFo5JjtJVa7AB74SxGiwxZJe_JUoXZwviv3uj_6XRf2vwNws_8OxNwJrIUyjvPFD3rTXIR-GdgTI-ChJX8W9sPULsjAkO9XUnTo1SJSdT7xK8ZVnLXEY6Jg78cHT9huSBlxS7DBanGXuGGY4w8-u0D2f_UsyjQKjiciRI3qUrdGtPEJetW-hxvSBKWs59XCf8w_xQEJacjFx3eQvueg9HicdlLMiZ_XcWTBP519rLWfkrhWnP2uUhA" https://192.168.150.128:10250/metrics/cadvisor
+curl -k -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IncxT25Kak5mNDdJMVFnaGM2aHpWYVRlNGRKbTdqbDV4TjZqVkZGREdVRk0ifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJrdWJlcm5ldGVzLWRhc2hib2FyZCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VjcmV0Lm5hbWUiOiJhZG1pbi10b2tlbi14MjJqYiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJhZG1pbiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6IjBjZTViNjUzLTI4ODQtNDkyMy05OTljLTQ1YWJmYmJmNjFmYSIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDprdWJlcm5ldGVzLWRhc2hib2FyZDphZG1pbiJ9.hJsdIEe9dv9XvT_-Wf6bxIPVP2UM5um41TL-iHVLSUSBoJpwPW0yI0YfPXek9A-zQHJzAZDxyhYT_nvQdJisx7ngVx6G8Qe66igBvjoyd1fcxQTktfGjQztX-egqcMua1ihzmQfLaGcGUNBS7ZJRuHitT_bGqijuT0CM2ddw7zcPiPLDCP9ucp34_McxkYpBL-uSg9ljneHqjRyNIQQTzD7ip_c_XBA-NW3S7_7q8itnCZG5Oa9GWuyASrlKA5PxAgJofemiglFZQu_Go9ATJwyL4u43QXo2RnGJbQ5rd2mrGdsTHN0XKlooz3nbAv-xpJmSPFLz-j6UJ_MlQu3eEw" https://192.168.150.128:10250/metrics/cadvisor
 
 # 容器层面的指标
 $ curl https://localhost:10250/metrics/cadvisor
@@ -2698,12 +2733,17 @@ $ mkdir /nfsdata
 $ mount -t nfs 172.21.51.55:/data/k8s /nfsdata
 
 $ df -Th
+192.168.150.128:/data/k8s nfs4       17G  6.4G   11G  38% /nfsdata
+
 ```
 
 ###### PV与PVC演示
 
 ```powershell
+
+# 创建pv
 $ mkdir /data/k8s/nginx
+
 $ cat pv-nfs.yaml
 apiVersion: v1
 kind: PersistentVolume
@@ -2717,7 +2757,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   nfs:
     path: /data/k8s/nginx
-    server: 172.21.51.55
+    server: 192.168.150.128
 
 $ kubectl create -f pv-nfs.yaml
 
@@ -2735,6 +2775,7 @@ nfs-pv   1Gi        RWO            Retain           Available
 - Failed（失败）： 表示该 PV 的自动回收失败
 
 ```powershell
+# 创建1个pvc声明
 $ cat pvc.yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -2760,8 +2801,11 @@ nfs-pv   1Gi        RWO            Retain           Bound    default/pvc-nfs
 
 #PersistentVolumeController会不断地循环去查看每一个 PVC，是不是已经处于 Bound（已绑定）状态。如果不是，那它就会遍历所有的、可用的 PV，并尝试将其与未绑定的 PVC 进行绑定，这样，Kubernetes 就可以保证用户提交的每一个 PVC，只要有合适的 PV 出现，它就能够很快进入绑定状态。而所谓将一个 PV 与 PVC 进行“绑定”，其实就是将这个 PV 对象的名字，填在了 PVC 对象的 spec.volumeName 字段上。
 
-# 到slave查看nfs数据目录
-$ ls /nfsdata
+# 到slave1查看nfs数据目录
+[root@k8s-slave1 ~]# ll /nfsdata/
+total 0
+drwxr-xr-x 2 root root 6 Jul 26 12:22 nginx
+
 ```
 
 创建Pod挂载pvc
@@ -2809,11 +2853,12 @@ df -Th
 cd /usr/share/nginx/html
 touch index.html
 
-# 查看/data/k8s/nginx下面是否生成index文件
+# 查看宿主机的/data/k8s/nginx下面是否生成index文件
 ll /data/k8s/nginx
 ls /nfsdata/nginx/
 
 # 删除pvc
+ kubectl delete -f delpyment.yaml
 ```
 
 总结：pv，pvc，bound，deployment
@@ -2838,8 +2883,7 @@ kind: Deployment
 metadata:
   name: nfs-client-provisioner
   labels:
-    app: nfs-client-provisioner
-  # replace with namespace where provisioner is deployed
+    app: nfs-client-provisioner  # replace with namespace where provisioner is deployed
   namespace: nfs-provisioner
 spec:
   replicas: 1
@@ -2867,13 +2911,13 @@ spec:
             - name: PROVISIONER_NAME
               value: luffy.com/nfs
             - name: NFS_SERVER
-              value: 172.21.51.55
+              value: 192.168.150.128
             - name: NFS_PATH  
               value: /data/k8s
       volumes:
         - name: nfs-client-root
           nfs:
-            server: 172.21.51.55
+            server: 192.168.150.128
             path: /data/k8s
 ```
 
@@ -2936,8 +2980,7 @@ metadata:
   namespace: nfs-provisioner
 subjects:
   - kind: ServiceAccount
-    name: nfs-client-provisioner
-    # replace with namespace where provisioner is deployed
+    name: nfs-client-provisioner   # replace with namespace where provisioner is deployed
     namespace: nfs-provisioner
 roleRef:
   kind: Role
