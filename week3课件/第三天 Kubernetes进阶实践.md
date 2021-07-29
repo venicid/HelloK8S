@@ -2857,7 +2857,7 @@ touch index.html
 ll /data/k8s/nginx
 ls /nfsdata/nginx/
 
-# 删除pvc
+# 删除pvc,pv,deployment
  kubectl delete -f delpyment.yaml
 ```
 
@@ -3007,9 +3007,17 @@ kubectl -n nfs-provisioner get po
 
 # 查看配置是否生成
 kubectl -n nfs-provisioner get po nfs-xxx -oyaml
+    volumeMounts:
+    - mountPath: /persistentvolumes
+      name: nfs-client-root
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: nfs-client-provisioner-token-vgz2v
+      readOnly: true
 
 # 把token给serviceaccount自动挂载
 kubect -n nfs-provisioner exec nfs-xxx cat /var/run/secrets/kubernets.io/serviceaccount/token
+
+eyJhbGciOiJSUzI1NiIsImtpZCI6IncxT25Kak5mNDdJMVFnaGM2aHpWYVRlNGRKbTdqbDV4TjZqVkZGREdVRk0ifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJuZnMtcHJvdmlzaW9uZXIiLCJrdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3NlY3JldC5uYW1lIjoibmZzLWNsaWVudC1wcm92aXNpb25lci10b2tlbi12Z3oydiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJuZnMtY2xpZW50LXByb3Zpc2lvbmVyIiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZXJ2aWNlLWFjY291bnQudWlkIjoiM2IwNzljZjQtOGIzNy00OGI1LTliM2UtM2ZmYzAzM2U2NmVmIiwic3ViIjoic3lzdGVtOnNlcnZpY2VhY2NvdW50Om5mcy1wcm92aXNpb25lcjpuZnMtY2xpZW50LXByb3Zpc2lvbmVyIn0.DlJRU6gYzvsyJ8meJTQFX5eogmw5sr6BXvUNS2vypIYj176SaiUrdqkW8hPG5_W_i8Zwyeaq25VbEQPhbguKvuJa5tf3Fn_aPuol2rIdcvJJfpkHTjWHuOIEgVZxP34Z2Ueqgy3_pz8nj0tlF__EcXZyCS0LldEbh0IbdHUBCAic6d0flH9s1KYwx46GnGCYX5b-wenhhNMuCZKqDvLSSTdRRBTlHgQATbGoLSv-WVpUVeZ1iA8R3voCyDlH6u6YCt9ETnTILU1-7M39bAlRlHnzzZuihbM3iYlsTsGNerXu67BO7MLqLG-4clRlHup5Z7aVR4FfiSLsWdoMlY-lBw
 
 # 查看
 kubectl get stroageClass
@@ -3053,6 +3061,8 @@ ceph的安装及使用参考 http://docs.ceph.org.cn/start/intro/
 
 单点快速安装：  https://blog.csdn.net/h106140873/article/details/90201379 
 
+安装前备份一次性装对，不然各种bug
+
 ![](images/ceph-art.png)
 
 ```powershell
@@ -3067,11 +3077,11 @@ ceph fs new cephfs cephfs_meta cephfs_data
 # 查看
 ceph fs ls
 
-# ceph auth get-key client.admin
+$ ceph auth get-key client.admin
 client.admin
         key: AQBPTstgc078NBAA78D1/KABglIZHKh7+G2X8w==
-# 挂载
-$ mount -t ceph 172.21.51.55:6789:/ /mnt/cephfs -o name=admin,secret=AQBPTstgc078NBAA78D1/KABglIZHKh7+G2X8w==
+# 在slave1挂载
+$ mount -t ceph 192.168.150.128:6789:/ /mnt/cephfs -o name=admin,secret=AQAlggFhJIV4HxAA8DxJ/TtkyRqrh2cy3ai/wA==
 ```
 
 
@@ -3226,13 +3236,13 @@ AQBPTstgc078NBAA78D1/KABglIZHKh7+G2X8w==
 创建secret
 
 ```powershell
-$ echo -n AQBPTstgc078NBAA78D1/KABglIZHKh7+G2X8w==|base64
+$ echo -n AQAlggFhJIV4HxAA8DxJ/TtkyRqrh2cy3ai/wA==|base64
 QVFCUFRzdGdjMDc4TkJBQTc4RDEvS0FCZ2xJWkhLaDcrRzJYOHc9PQ==
 
 $ cat ceph-admin-secret.yaml
 apiVersion: v1
 data:
-  key: QVFCUFRzdGdjMDc4TkJBQTc4RDEvS0FCZ2xJWkhLaDcrRzJYOHc9PQ==
+  key: QVFBbGdnRmhKSVY0SHhBQThEeEovVHRreVJxcmgyY3kzYWkvd0E9PQ==
 kind: Secret
 metadata:
   name: ceph-admin-secret
@@ -3252,7 +3262,7 @@ metadata:
   name: dynamic-cephfs
 provisioner: ceph.com/cephfs
 parameters:
-    monitors: 172.21.51.55:6789
+    monitors: 192.168.150.128:6789
     adminId: admin
     adminSecretName: ceph-admin-secret
     adminSecretNamespace: "kube-system"
@@ -3261,9 +3271,18 @@ parameters:
 
 查看是否启动成功
 
-```
+```shell
 kubectl apply -f .
-kubectl -n kube-system get po
+$ kubectl -n kube-system get po
+NAME                                 READY   STATUS    RESTARTS   AGE
+cephfs-provisioner-7858cc7b6-42q64   0/1     Pending   0          8s
+
+[root@ceph ceph]# kubectl -n kube-system get secrets 
+NAME                                             TYPE                                  DATA   AGE
+attachdetach-controller-token-pxnf4              kubernetes.io/service-account-token   3      4d12h
+bootstrap-signer-token-bkqr8                     kubernetes.io/service-account-token   3      4d12h
+ceph-admin-secret                                Opaque                                1      75s
+cephfs-provisioner-token-w6cpc                   kubernetes.io/service-account-token   3      75s
 ```
 
 
@@ -3294,7 +3313,7 @@ $ kubectl create -f cephfs-pvc-test.yaml
 
 $ kubectl get pvc
 
-# 一直在pending，可能是驱动有问题
+# 一直在pending，可能是驱动有问题,确实有问题，如何排查
 kubectl -n kube-system get po
 kubectl -n kube-system logs -f pvcxxxxx
 
@@ -3338,7 +3357,7 @@ $ kubectl create -f test-pvc-cephfs.yaml
 查看storageclasss
 
 ```
-kubectl get stroageClass
+kubectl get storageclasses.storage.k8s.io
 ```
 
 
@@ -3382,7 +3401,7 @@ mount -t ceph 172.21.51.55:6789:/ /mnt/cephfs -o name=admin,secret=AQBPTstgc078N
 
 1. 为什么有helm？
 
-   快速帮我们启动APP，包括前端，后端，数据库等各种组件
+   > 快速帮我们启动APP，包括前端，后端，数据库等各种组件
 
 2. Helm是什么？
 
@@ -3452,7 +3471,7 @@ helm 是包管理工具，包就是指 chart，helm 能够：
 更多版本可以参考： https://github.com/helm/helm/releases 
 
 ```powershell
-# k8s-master节点
+# k8s-master节点,安装helm
 $ wget https://get.helm.sh/helm-v3.2.4-linux-amd64.tar.gz
 $ tar -zxf helm-v3.2.4-linux-amd64.tar.gz
 
@@ -3521,15 +3540,26 @@ $ helm -n wordpress install wordpress stable/wordpress --set mariadb.primary.per
 $ helm -n wordpress ls
 
 # 查看各种资源
-$ kubectl -n wordpress get all 
+$ kubectl -n wordpress get all -owide
 $ kubectl -n wordpress get pod
-$ kubectl -n wordpress get ing
-$ kubectl -n wordpress get sts
+$ kubectl -n wordpress get sts  # 状态集
+$ kubectl -n wordpress get service  # 四层负载均衡
+$  kubectl -n wordpress get endpoints
+$ kubectl -n wordpress get ing  # 七层负载均衡
+$ kubectl -n wordpress describe ing wordpress
+Rules:
+  Host                 Path  Backends
+  ----                 ----  --------
+  wordpress.luffy.com  
+                       /   wordpress:http ()
+                       
+
 
 # 给本地hosts添加
 192.168.150.128 wordpress.luffy.com 
 
-# 浏览器访问
+# 浏览器访问wordpress.luffy.com ，或者cmd curl访问
+# 关闭防火墙，关闭代理
 
 # 从chart仓库中把chart包下载到本地
 $ helm pull stable/wordpress
@@ -3870,7 +3900,7 @@ $ helm install nginx-2 ./nginx --set replicaCount=2 --set resources.limits.cpu=2
 
 
 
-通常用作企业级镜像仓库服务，实际功能强大很多。
+>harbor 通常用作企业级镜像仓库服务，实际功能强大很多。
 
 
 
@@ -3889,6 +3919,7 @@ $ helm search repo harbor
 
 # 不知道如何部署，因此拉到本地
 $ helm pull harbor/harbor
+$ tar xvf harbor-1.7.0.tgz
 
 # 查看harbor的所有yaml文件，其中vaules.yaml是我们应该配置的
 ll harbor
@@ -3921,7 +3952,7 @@ kind: PersistentVolume
 metadata:
   name: harbor-pv
   labels:
-    pv: harbor-pv
+    pv: cephfs-pv
 spec:
   capacity:
     storage: 20Gi
@@ -3929,7 +3960,7 @@ spec:
     - ReadWriteMany
   cephfs:
     monitors:
-      - 172.21.51.55:6789
+      - 192.168.150.128:6789
     user: admin
     secretRef:
       name: ceph-admin-secret
@@ -3952,8 +3983,14 @@ spec:
       
 $ kubectl apply -f .
 
-kubectl -n harbor get pvc
-kubectl -n harbor get pv
+[root@ceph helm]# kubectl -n harbor get pv
+NAME        CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                    STORAGECLASS   REASON   AGE
+harbor-pv   20Gi       RWX            Retain           Bound    harbor/harbor-data-pvc                           49s
+[root@ceph helm]# 
+[root@ceph helm]# kubectl -n harbor get pvc
+NAME              STATUS   VOLUME      CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+harbor-data-pvc   Bound    harbor-pv   20Gi       RWX                           25s
+
 ```
 
 修改harbor配置：
@@ -3967,17 +4004,26 @@ kubectl -n harbor get pv
 
 ```shell
 $ vim values.yaml
-existingClaim:"harbor-data-pvc"
+# 数据放在pvc
+existingClaim: "harbor-data-pvc"
+existingClaim: "harbor-data-pvc"
+existingClaim: "harbor-data-pvc"
 
 # 各自的组件放在各自的目录
-subPath: "harbor/registry"
+subPath: "harbor/registry"  #相对路径
 ...
-subPath: "harbor/ redis"
+...
+subPath: "harbor/redis"
 
+# 第三方组件
 trivy:
    enable:false
-   
+notary:
+   enable:false
+
+# 内部数据库
 database:
+  internal:
   password: "harbor"
 ```
 
@@ -3989,11 +4035,22 @@ helm创建：
 # 使用本地chart安装
 $ helm install harbor ./harbor -n harbor
 
-$ kubectl -n harbor get po
+[root@k8s-master helm]# kubectl -n harbor get po
+NAME                                  READY   STATUS              RESTARTS   AGE
+harbor-chartmuseum-5547c9f746-8rr6q   0/1     ContainerCreating   0          22s
+harbor-core-bbf78d48f-fjjqp           0/1     Running             0          22s
+harbor-database-0                     0/1     Init:0/2            0          22s
+harbor-jobservice-549548d9b5-6wqkj    0/1     ContainerCreating   0          22s
+harbor-portal-5bfdfcf9f6-6m65l        0/1     ContainerCreating   0          22s
+harbor-redis-0                        0/1     ContainerCreating   0          22s
+harbor-registry-5dfff8cfc7-vxfjm      0/2     ContainerCreating   0          22s
 
 # 先保证database和redis启动正常
 $ kubectl n harbor logs harbor-database-0 
 提示没有权限
+
+# 安装错误请卸载安装
+helm -n harbor uninstall harbor
 ```
 
 数据权限问题：
@@ -4008,20 +4065,24 @@ $ kubectl n harbor logs harbor-database-0
 解决：直接去文件中修改权限
 
 ```powershell
+[root@ceph helm]# ceph auth get-key client.admin
+AQAlggFhJIV4HxAA8DxJ/TtkyRqrh2cy3ai/wA==
+
 # 去slave1节点
-$ mount -t ceph 172.21.51.55:6789:/ /mnt/cephfs -o name=admin,secret=AQBPTstgc078NBAA78D1/KABglIZHKh7+G2X8w==
+$ mount -t ceph 192.168.150.128:6789:/ /mnt/cephfs -o name=admin,secret=AQAlggFhJIV4HxAA8DxJ/TtkyRqrh2cy3ai/wA==
 
 $ chown -R 999:999 database
 $ chown -R 999:999 redis
 $ chown -R 10000:10000 chartmuseum
 $ chown -R 10000:10000 registry
 
-# 重新拉取
+# 删除重新拉取database
 kubectl -n harbor delete po harbor-database-xxx
+kubectl -n harbor delete po harbor-core-xxx
 
 # 查看日志
-kubectl -n harbor logs -f po harbor-database-xxx
-kubectl -n harbor delete po harbor-core-xxx
+kubectl -n harbor logs -f  harbor-database-xxx
+
 
 # 重启失败的pod，查看日志
 
