@@ -3061,7 +3061,7 @@ ceph的安装及使用参考 http://docs.ceph.org.cn/start/intro/
 
 单点快速安装：  https://blog.csdn.net/h106140873/article/details/90201379 
 
-安装前备份一次性装对，不然各种bug
+`安装前备份一次性装对，不然各种bug`
 
 ![](images/ceph-art.png)
 
@@ -4046,7 +4046,7 @@ harbor-redis-0                        0/1     ContainerCreating   0          22s
 harbor-registry-5dfff8cfc7-vxfjm      0/2     ContainerCreating   0          22s
 
 # 先保证database和redis启动正常
-$ kubectl n harbor logs harbor-database-0 
+$ kubectl -n harbor logs harbor-database-0 
 提示没有权限
 
 # 安装错误请卸载安装
@@ -4071,26 +4071,54 @@ AQAlggFhJIV4HxAA8DxJ/TtkyRqrh2cy3ai/wA==
 # 去slave1节点
 $ mount -t ceph 192.168.150.128:6789:/ /mnt/cephfs -o name=admin,secret=AQAlggFhJIV4HxAA8DxJ/TtkyRqrh2cy3ai/wA==
 
+# 镜像里面打了999 1000
 $ chown -R 999:999 database
 $ chown -R 999:999 redis
 $ chown -R 10000:10000 chartmuseum
 $ chown -R 10000:10000 registry
+[root@k8s-slave2 harbor]# ll
+total 0
+drwxr-xr-x 1   10000 10000 0 Jul 28 15:46 chartmuseum
+drwxr-xr-x 1 polkitd input 1 Jul 28 15:34 database
+drwxr-xr-x 1   10000 10000 0 Jul 28 15:26 jobservice
+drwxr-xr-x 1 polkitd input 1 Jul 28 15:43 redis
+drwxr-xr-x 1   10000 10000 0 Jul 28 15:26 registry
 
-# 删除重新拉取database
+# 删除重新拉取database，强制删除--force
 kubectl -n harbor delete po harbor-database-xxx
 kubectl -n harbor delete po harbor-core-xxx
 
-# 查看日志
+# 重启失败的pod，查看日志
 kubectl -n harbor logs -f  harbor-database-xxx
 
+# 排查思路 database--》core---》jobservice
+# database拉取镜像比较慢
+# core启动比较慢
+[root@ceph ceph]# kubectl -n harbor logs -f harbor-core-54854f6c75-f6g2v
+...
+2021-07-29T15:15:50Z [INFO] [/common/dao/base.go:70]: Register database completed
+2021-07-29T15:15:51Z [INFO] [/common/dao/pgsql.go:127]: Upgrading schema for pgsql ...
+2021-07-29T15:18:58Z [INFO] [/vendor/github.com/golang-migrate/migrate/v4/migrate.go:765]: 1/u initial_schema (3m7.896945533s)
+...
+2021-07-29T15:23:23Z [INFO] [/vendor/github.com/golang-migrate/migrate/v4/migrate.go:765]: 60/u 2.3.0_schema (2m55.98614997s)
+...
+2021-07-29T15:23:24Z [INFO] [/core/main.go:236]: Version: v2.3.0, Git commit: 047b122c
+2021/07/29 15:23:24.498 [I] [asm_amd64.s:1374]  http server Running on http://:8080
 
-# 重启失败的pod，查看日志
 
-# 查看域名，配置到本地hosts
-kubectl -n harbor get ing
+# 查看域名，配置harbor.luffy.com到本地hosts
+[root@ceph ceph]# kubectl -n harbor get ingress
+Warning: extensions/v1beta1 Ingress is deprecated in v1.14+, unavailable in v1.22+; use networking.k8s.io/v1 Ingress
+NAME             CLASS    HOSTS              ADDRESS   PORTS     AGE
+harbor-ingress   <none>   harbor.luffy.com             80, 443   19h
 
 # 浏览器访问，密码在values.yaml中
+# win10,先用cmd进行ping，curl，在排查错误。防火墙需要关闭
+admin
+Harbor12345
 ```
+
+![image-20210730002103624](第三天 Kubernetes进阶实践.assets/image-20210730002103624.png)
 
 `harbor企业里面用的比较多的一种仓库`
 
@@ -4110,14 +4138,14 @@ kubectl -n harbor get ing
 # hosts
 $ cat /etc/hosts
 ...
-172.21.51.143 k8s-master harbor.luffy.com
+192.168.150.128 k8s-master harbor.luffy.com
 ...
 
 # docker配置
 $ cat /etc/docker/daemon.json
 {                                            
   "insecure-registries": [                   
-    "172.21.51.143:5000",                   
+    "192.168.150.128:5000",                   
     "harbor.luffy.com"                     
   ],                                         
   "registry-mirrors" : [                     
@@ -4142,7 +4170,7 @@ $ docker login harbor.luffy.com
 # 重新推送，镜像仓库中可以看到
 ```
 
-
+![image-20210730002747910](第三天 Kubernetes进阶实践.assets/image-20210730002747910.png)
 
 
 
@@ -4180,6 +4208,8 @@ helm plugin ls
 # 查看
 $ helm repo  ls
 
+# 在界面，新建luffy的项目
+
 # 添加repo
 $ helm repo add myharbor https://harbor.luffy.com/chartrepo/luffy
 # x509错误 不受信任的auth
@@ -4203,12 +4233,13 @@ $ helm repo ls
 推送chart到仓库：
 
 ```powershell
+# harbor是目录，luffy是repo名称
 $ helm push harbor luffy --ca-file=harbor.ca.crt -u admin -p Harbor12345
 ```
 
 helm Charts查看   
 
-
+![image-20210730004330848](第三天 Kubernetes进阶实践.assets/image-20210730004330848.png)
 
 
 
