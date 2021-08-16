@@ -2730,7 +2730,7 @@ $ systemctl enable nfs && systemctl start nfs
 ```powershell
 $ yum -y install nfs-utils rpcbind
 $ mkdir /nfsdata
-$ mount -t nfs 172.21.51.55:/data/k8s /nfsdata
+$ mount -t nfs 192.168.150.128:/data/k8s /nfsdata
 
 $ df -Th
 192.168.150.128:/data/k8s nfs4       17G  6.4G   11G  38% /nfsdata
@@ -3001,12 +3001,13 @@ provisioner: luffy.com/nfs
 创建资源
 
 ```shell
-kubctl craete ns nfs-provisioner
+kubectl create ns nfs-provisioner
 kubectl apply -f .
 kubectl -n nfs-provisioner get po
 
 # 查看配置是否生成
 kubectl -n nfs-provisioner get po nfs-xxx -oyaml
+
     volumeMounts:
     - mountPath: /persistentvolumes
       name: nfs-client-root
@@ -3020,7 +3021,7 @@ kubect -n nfs-provisioner exec nfs-xxx cat /var/run/secrets/kubernets.io/service
 eyJhbGciOiJSUzI1NiIsImtpZCI6IncxT25Kak5mNDdJMVFnaGM2aHpWYVRlNGRKbTdqbDV4TjZqVkZGREdVRk0ifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJuZnMtcHJvdmlzaW9uZXIiLCJrdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3NlY3JldC5uYW1lIjoibmZzLWNsaWVudC1wcm92aXNpb25lci10b2tlbi12Z3oydiIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50Lm5hbWUiOiJuZnMtY2xpZW50LXByb3Zpc2lvbmVyIiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZXJ2aWNlLWFjY291bnQudWlkIjoiM2IwNzljZjQtOGIzNy00OGI1LTliM2UtM2ZmYzAzM2U2NmVmIiwic3ViIjoic3lzdGVtOnNlcnZpY2VhY2NvdW50Om5mcy1wcm92aXNpb25lcjpuZnMtY2xpZW50LXByb3Zpc2lvbmVyIn0.DlJRU6gYzvsyJ8meJTQFX5eogmw5sr6BXvUNS2vypIYj176SaiUrdqkW8hPG5_W_i8Zwyeaq25VbEQPhbguKvuJa5tf3Fn_aPuol2rIdcvJJfpkHTjWHuOIEgVZxP34Z2Ueqgy3_pz8nj0tlF__EcXZyCS0LldEbh0IbdHUBCAic6d0flH9s1KYwx46GnGCYX5b-wenhhNMuCZKqDvLSSTdRRBTlHgQATbGoLSv-WVpUVeZ1iA8R3voCyDlH6u6YCt9ETnTILU1-7M39bAlRlHnzzZuihbM3iYlsTsGNerXu67BO7MLqLG-4clRlHup5Z7aVR4FfiSLsWdoMlY-lBw
 
 # 查看
-kubectl get stroageClass
+kubectl get stroageclass
 ```
 
 
