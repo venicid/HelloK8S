@@ -488,7 +488,14 @@ $ tail -f access.log
 $ docker run -u root --rm -ti quay.io/fluentd_elasticsearch/fluentd:v3.1.0 sh
 / # cat /etc/fluent/fluent.conf
 / # mkdir /etc/fluent/config.d
+/ # vim nginx-fluent.conf  上面的内容
+
+/ # 启动fluent,实时监控
+/ # docker exec -ti 66c sh
 / # fluentd -c /etc/fluent/fluent.conf
+
+/ # 不断追加log，查看fluent打印的输出
+/ # mkdir -p /var/log/nginx
 / # echo '53.49.146.149 1561620585.973 0.005 502 [27/Jun/2019:15:29:45 +0800] 178.73.215.171 33337 GET https' >>/var/log/nginx/access.log
 ```
 
@@ -528,6 +535,11 @@ $ docker run -u root --rm -ti quay.io/fluentd_elasticsearch/fluentd:v3.1.0 sh
    </match>
 </label>
 ```
+可以看到https捕获到了，tls为true
+```go
+{"serverIp":"53.49.146.149","timestamp":"1561620585.973","respondTime":"0.005","httpCode":"502","eventTime":"27/Jun/2019:15:29:45 +0800","clientIp":"178.73.215.171","clientPort":"33337","method":"GET","protocol":"https","host_name":"9fa8171197cd","my_key":"my_val","tls":"true"}
+```
+
 
 ##### ConfigMap的配置文件挂载使用场景
 
