@@ -1289,6 +1289,15 @@ curl 10.104.226.175:9200/_cat/health?v
 2. 为进一步控制资源，会为daemonset指定一个选择标签，fluentd=true来做进一步过滤，只有带有此标签的节点才会部署fluentd
 3. 日志采集，需要采集哪些目录下的日志，采集后发送到es端，因此需要配置的内容比较多，我们选择使用configmap的方式把配置文件整个挂载出来
 
+```
+# 查看container的日志
+ll /var/lib/docker/containers/fsdasfdsafdsa
+
+# node1下的所有log，软链接到container下的log
+ls /var/log/containers/*.log -l
+tail -f /var/log/containers/xxxx
+```
+
 ###### 部署服务
 
 `efk/fluentd-es-config-main.yaml`
