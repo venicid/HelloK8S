@@ -651,12 +651,18 @@ spec:
 
 ```powershell
 $ kubectl apply -f demo-deployment.yaml
+
+ $ kubectl get pod
+ 
+ $ kubectl exec demo-4444 ls /etc/application
 ```
 
 修改configmap文件的内容，观察pod中是否自动感知变化：
 
 ```powershell
 $ kubectl edit cm application-config
+
+$ kubectl exec demo-4444 cat /etc/application
 ```
 
 
@@ -710,6 +716,7 @@ $ kubectl delete cm application-config
 
 $ kubectl create cm application-config --from-file=application.yml --from-file=supervisord.conf
 
+# 可以看到2个
 $ kubectl get cm application-config -oyaml
 ```
 
@@ -720,7 +727,6 @@ $ kubectl exec demo-55c649865b-gpkgk ls /etc/application/
 application.yml
 supervisord.conf
 ```
-
 
 
 此时，是挂载到pod内的空目录中`/etc/application`，假如想挂载到pod已存在的目录中，比如：
@@ -839,8 +845,8 @@ locale
 ```
 
 
-
 > 使用subPath挂载到Pod内部的文件，不会自动感知原有ConfigMap的变更
+> prometheus  --> configmap ---> soft reload
 
 
 
@@ -857,7 +863,8 @@ https://staight.github.io/2019/09/16/%E5%9C%A8k8s%E4%B8%8A%E9%83%A8%E7%BD%B2elas
 ###### 使用StatefulSet管理有状态服务
 
 使用Deployment创建多副本的pod的情况：
-
+vim dpl.yaml
+kubectl apply -f dpl.yaml
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -885,7 +892,9 @@ spec:
 
 
 
-使用StatefulSet创建多副本pod的情况：
+使用StatefulSet创建多副本pod的情况：,配置文件多nginx
+vim sts.yaml
+kubectl apply -f sts.yaml
 
 ```yaml
 apiVersion: apps/v1
@@ -913,7 +922,29 @@ spec:
         - containerPort: 80
 ```
 
-无头服务Headless Service
+对比deployment和statefulset部署的pod副本
+```
+kubectl get pod
+deployment同时创建
+
+kubectl scale statefulset nginx-statefulset --replicas=3
+statefulset
+先创建nginx-statefulset-0 ，再创建其他的
+删除也是顺序的，先删除3
+```
+
+
+无头服务Headless Service：clusetIP为None
+
+```
+mysql集群是有状态的，master -> slave
+es,kafaka  es,es-1,es-2,es-3  唯一的网络标识
+使用无头服务可以实现，唯一的网络标识
+
+# 不通
+kubectl exec nginx-statefulset-0 curl nginx-statefulset-1
+```
+
 
 ```yaml
 kind: Service
@@ -934,7 +965,20 @@ spec:
 ```powershell
 $ kubectl -n default exec  -ti nginx-statefulset-0 sh
 / # curl nginx-statefulset-2.nginx
+
+# 通了
+<pod-name><headless-name>
+kubectl exec nginx-statefulset-0 curl nginx-statefulset-1.nginx
+kubectl exec nginx-statefulset-0 curl nginx-statefulset-2.nginx
+
+# 查看nginx的clusetrIp为None，但是entrypoint有值
+kubectl get svc
+kubectl get ep
+
+# hostname和pod的Name一致
+kubect exec statefulset0 hostname
 ```
+
 
 
 
@@ -1013,10 +1057,10 @@ spec:
         image: alpine:3.6
         command: ["sh", "-c", "chown -R 1000:1000 /usr/share/elasticsearch/data"]
         securityContext:
-          privileged: true
+          privileged: true   # root权限
         volumeMounts:
         - name: es-data-volume
-          mountPath: /usr/share/elasticsearch/data
+          mountPath: /usr/share/elasticsearch/data   # 挂载目录
       containers:
       - name: elasticsearch
         image: 172.21.51.143:5000/elasticsearch/elasticsearch:7.4.2
@@ -1090,6 +1134,7 @@ spec:
 $ kubectl create namespace logging
 
 ## 部署服务
+$ mkdir es
 $ kubectl apply -f es-config.yaml
 $ kubectl apply -f es-svc-headless.yaml
 $ kubectl apply -f es-sts.yaml
@@ -1101,10 +1146,15 @@ NAME              READY   STATUS    RESTARTS   AGE   IP
 elasticsearch-0   1/1     Running   0          15m   10.244.0.126 
 elasticsearch-1   1/1     Running   0          15m   10.244.0.127
 elasticsearch-2   1/1     Running   0          15m   10.244.0.128
+
+# 查看pvc
+kubectl -n logging get pvc
+
 # 然后通过curl命令访问一下服务，验证es是否部署成功
 $ kubectl -n logging get svc  
 es-svc            ClusterIP   10.104.226.175   <none>        9200/TCP   2s
 es-svc-headless   ClusterIP   None             <none>        9300/TCP   32m 
+
 $ curl 10.104.226.175:9200
 {
   "name" : "elasticsearch-2",
@@ -1214,11 +1264,19 @@ deployment.apps/kibana created
 service/kibana created  
 ingress/kibana created
 
+$ kubectl -n logging get po -o wide
+
 ## 配置域名解析 kibana.luffy.com，并访问服务进行验证，若可以访问，说明连接es成功
 
+# 查看pod日志
+kubectl -n logging logs -f kibana-434343
 
-# GET /_cat/health?v
-# GET /_cat/indices
+# dev_tool/console 配置kibana
+GET /_cat/health?v
+GET /_cat/indices
+
+# 在 es中查询
+curl 10.104.226.175:9200/_cat/health?v
 ```
 
 
