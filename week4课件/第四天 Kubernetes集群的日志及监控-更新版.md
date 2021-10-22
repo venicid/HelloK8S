@@ -1296,11 +1296,14 @@ ll /var/lib/docker/containers/fsdasfdsafdsa
 # node1下的所有log，软链接到container下的log
 ls /var/log/containers/*.log -l
 tail -f /var/log/containers/xxxx
+
+# fluentd使用filter
+fluentd,namespace,pod --> k8s api --> more --> <record> --> es
 ```
 
 ###### 部署服务
 
-`efk/fluentd-es-config-main.yaml`
+`efk/fluentd-es-config-main.yaml`主配置
 
 ```yaml
 apiVersion: v1
@@ -1329,7 +1332,7 @@ metadata:
 2. 默认集成了 [kubernetes_metadata_filter](https://github.com/fabric8io/fluent-plugin-kubernetes_metadata_filter) 插件，来解析日志格式，得到k8s相关的元数据，raw.kubernetes
 3. match输出到es端的flush配置
 
-`efk/fluentd-configmap.yaml`
+`efk/fluentd-configmap.yaml`子配置
 
 ```yaml
 kind: ConfigMap
@@ -1344,19 +1347,19 @@ data:
     <source>
       @id fluentd-containers.log
       @type tail
-      path /var/log/containers/*.log
+      path /var/log/containers/*.log    # 路径
       pos_file /var/log/es-containers.log.pos
       time_format %Y-%m-%dT%H:%M:%S.%NZ
       localtime
-      tag raw.kubernetes.*
+      tag raw.kubernetes.*   # 打标签
       format json
-      read_from_head false
+      read_from_head false   # 不从头收集日志
     </source>
     # Detect exceptions in the log output and forward them as one log entry.
     # https://github.com/GoogleCloudPlatform/fluent-plugin-detect-exceptions 
     <match raw.kubernetes.**>
       @id raw.kubernetes
-      @type detect_exceptions
+      @type detect_exceptions  # 探测异常日志
       remove_tag_prefix raw
       message log
       stream stream
@@ -1375,7 +1378,7 @@ data:
   output.conf: |-
     # Enriches records with Kubernetes metadata
     <filter kubernetes.**>
-      @type kubernetes_metadata
+      @type kubernetes_metadata   # 最重要的插件,已经安装好了。 在fluent容器内 执行 gem list
     </filter>
     <match **>
       @id elasticsearch
@@ -1410,7 +1413,7 @@ daemonset定义文件，fluentd.yaml，注意点：
 3. 需要将fluentd的configmap中的配置文件挂载到容器内
 4. 想要部署fluentd的节点，需要添加fluentd=true的标签
 
-`efk/fluentd.yaml`
+`efk/fluentd.yaml`混合的
 
 ```yaml
 apiVersion: v1
@@ -1517,6 +1520,8 @@ spec:
 ## 给slave1打上标签，进行部署fluentd日志采集服务
 $ kubectl label node k8s-slave1 fluentd=true  
 $ kubectl label node k8s-slave2 fluentd=true
+# 删除标签
+kubectl label node k8s-slave1 fluentd-
 
 # 创建服务
 $ kubectl apply -f fluentd-es-config-main.yaml  
