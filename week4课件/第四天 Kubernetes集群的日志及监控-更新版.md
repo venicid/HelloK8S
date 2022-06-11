@@ -485,18 +485,32 @@ $ tail -f access.log
 启动服务，追加文件内容：
 
 ```powershell
+# 启动fluent容器
 $ docker run -u root --rm -ti quay.io/fluentd_elasticsearch/fluentd:v3.1.0 sh
-/ # cat /etc/fluent/fluent.conf
-/ # mkdir /etc/fluent/config.d
-/ # vim nginx-fluent.conf  上面的内容
 
-/ # 启动fluent,实时监控
-/ # docker exec -ti 66c sh
-/ # fluentd -c /etc/fluent/fluent.conf
+# 配置config
+cat /etc/fluent/fluent.conf
+mkdir /etc/fluent/config.d
+vim nginx-fluent.conf  # 上面的内容
 
-/ # 不断追加log，查看fluent打印的输出
-/ # mkdir -p /var/log/nginx
-/ # echo '53.49.146.149 1561620585.973 0.005 502 [27/Jun/2019:15:29:45 +0800] 178.73.215.171 33337 GET https' >>/var/log/nginx/access.log
+# 安装vim
+apt-get update
+apt-get install vim
+
+# 启动fluent,像niginx一样，实时监控
+fluentd -h
+fluentd 
+# 根据配置文件启动
+fluentd -c /etc/fluent/fluent.conf
+
+# 不断追加log，查看fluent打印的输出
+docker exec -ti 065580bdf4d5 sh
+mkdir -p /var/log/nginx
+echo '53.49.146.149 1561620585.973 0.005 502 [27/Jun/2019:15:29:45 +0800] 178.73.215.171 33337 GET https' >>/var/log/nginx/access.log
+
+# 看到结果
+2021-10-28 17:17:12.690820561 +0000 nginx_access: {"serverIp":"53.49.146.149","timestamp":"1561620585.973","respondTime":"0.005","httpCode":"502","eventTime":"27/Jun/2019:15:29:45 +0800","clientIp":"178.73.215.171","clientPort":"33337","method":"GET","protocol":"https"}
+
 ```
 
 使用该网站进行正则校验： [http://fluentular.herokuapp.com](http://fluentular.herokuapp.com/) 
@@ -504,6 +518,8 @@ $ docker run -u root --rm -ti quay.io/fluentd_elasticsearch/fluentd:v3.1.0 sh
 
 
 ###### 实践二：使用ruby实现日志字段的转换及自定义处理
+
+修改fluent配置文件如下，添加了`filter`进行tls过滤
 
 ```powershell
 <source>
@@ -572,7 +588,7 @@ spring:
 
 该配置文件在k8s中可以通过configmap来管理，通常我们有如下两种方式来管理配置文件：
 
-- 通过kubectl命令行来生成configmap
+- 方式2：通过kubectl命令行来生成configmap
 
   ```powershell
   # 通过文件直接创建
@@ -580,11 +596,14 @@ spring:
   
   # 会生成配置文件，查看内容，configmap的key为文件名字
   $ kubectl -n default get cm application-config -oyaml
+  
+  # 查看
+  kuebct get configmaps
   ```
 
   
 
-- 通过yaml文件直接创建
+- 方式1：通过yaml文件直接创建
 
   ```powershell
   $ cat application-config.yaml
@@ -595,11 +614,7 @@ spring:
     namespace: default
   data:
     application.yml: |
-      spring:
-        application:
-          name: svca-service
-        cloud:
-          config:
+      spring:nfig:
             uri: http://config:8888
             fail-fast: true
             username: user
@@ -614,7 +629,11 @@ spring:
   $ kubectl apply -f application-config.yaml
   ```
 
-准备一个`demo-deployment.yaml`文件，挂载上述configmap到`/etc/application/`中
+
+
+> 核心文件：创建pod，将名为application-config的configmap挂载到pod的目录
+>
+> 准备一个`demo-deployment.yaml`文件，挂载上述configmap到pod内部的目录`/etc/application/`中》
 
 ```powershell
 $ cat demo-deployment.yaml
@@ -654,6 +673,7 @@ $ kubectl apply -f demo-deployment.yaml
 
  $ kubectl get pod
  
+ # 进入pod查看
  $ kubectl exec demo-4444 ls /etc/application
 ```
 
@@ -661,7 +681,6 @@ $ kubectl apply -f demo-deployment.yaml
 
 ```powershell
 $ kubectl edit cm application-config
-
 $ kubectl exec demo-4444 cat /etc/application
 ```
 
@@ -720,7 +739,9 @@ $ kubectl create cm application-config --from-file=application.yml --from-file=s
 $ kubectl get cm application-config -oyaml
 ```
 
-观察Pod已经自动获取到最新的变化
+观察Pod已经自动获取到最新的变化，
+
+> 创建pod的时候，deployment已经将application-conf ig挂载到pod的目录
 
 ```powershell
 $ kubectl exec demo-55c649865b-gpkgk ls /etc/application/
@@ -737,7 +758,9 @@ color_prompt
 locale
 ```
 
- 更改deployment的挂载目录：
+
+
+更改deployment的挂载目录:
 
 ```powershell
 $ cat demo-deployment.yaml
@@ -845,7 +868,7 @@ locale
 ```
 
 
-> 使用subPath挂载到Pod内部的文件，不会自动感知原有ConfigMap的变更
+> 使用subPath挂载到Pod内部的文件，·`不会自动感知原有ConfigMap的变更`
 > prometheus  --> configmap ---> soft reload
 
 
@@ -865,6 +888,7 @@ https://staight.github.io/2019/09/16/%E5%9C%A8k8s%E4%B8%8A%E9%83%A8%E7%BD%B2elas
 使用Deployment创建多副本的pod的情况：
 vim dpl.yaml
 kubectl apply -f dpl.yaml
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -922,21 +946,22 @@ spec:
         - containerPort: 80
 ```
 
-对比deployment和statefulset部署的pod副本
-```
+对比:  deployment和statefulset部署的pod副本
+```go
 kubectl get pod
-deployment同时创建
+deployment 同时创建
 
 kubectl scale statefulset nginx-statefulset --replicas=3
-statefulset
-先创建nginx-statefulset-0 ，再创建其他的
-删除也是顺序的，先删除3
+statefulset 先创建nginx-statefulset-0 ，再创建其他的.删除也是顺序的，先删除3
 ```
 
 
-无头服务Headless Service：clusetIP为None
 
-```
+
+
+使用无头服务可以实现，唯一的网络标识
+
+```python
 mysql集群是有状态的，master -> slave
 es,kafaka  es,es-1,es-2,es-3  唯一的网络标识
 使用无头服务可以实现，唯一的网络标识
@@ -945,6 +970,9 @@ es,kafaka  es,es-1,es-2,es-3  唯一的网络标识
 kubectl exec nginx-statefulset-0 curl nginx-statefulset-1
 ```
 
+无头服务Headless Service：clusetIP为None
+
+vim headeless.yaml
 
 ```yaml
 kind: Service
@@ -963,20 +991,23 @@ spec:
 ```
 
 ```powershell
+# 通了 curl pod名称.无头服务的名称
+# 格式：curl <pod-name>.<headless-name>
 $ kubectl -n default exec  -ti nginx-statefulset-0 sh
-/ # curl nginx-statefulset-2.nginx
+$ curl nginx-statefulset-2.nginx
 
-# 通了
-<pod-name><headless-name>
 kubectl exec nginx-statefulset-0 curl nginx-statefulset-1.nginx
 kubectl exec nginx-statefulset-0 curl nginx-statefulset-2.nginx
 
 # 查看nginx的clusetrIp为None，但是entrypoint有值
 kubectl get svc
 kubectl get ep
+kubectl get pod -owide
 
 # hostname和pod的Name一致
-kubect exec statefulset0 hostname
+$ kubectl exec nginx-statefulset-0 hostname
+ nginx-statefulset-0
+
 ```
 
 
@@ -1057,10 +1088,10 @@ spec:
         image: alpine:3.6
         command: ["sh", "-c", "chown -R 1000:1000 /usr/share/elasticsearch/data"]
         securityContext:
-          privileged: true   # root权限
+          privileged: true  
         volumeMounts:
         - name: es-data-volume
-          mountPath: /usr/share/elasticsearch/data   # 挂载目录
+          mountPath: /usr/share/elasticsearch/data   
       containers:
       - name: elasticsearch
         image: 172.21.51.143:5000/elasticsearch/elasticsearch:7.4.2
@@ -1128,6 +1159,24 @@ spec:
 
 
 
+出现的错误:
+
+```shell
+# 查看日志
+kubectl -n logging logs -f xxxx
+kubectl -n logging describe  xxxx
+# 1、镜像准备
+elasticsearch镜像提前push到本地镜像仓库
+
+# 2、yaml中的resource限制，暂时可以删除
+
+# 3、各个node节点nfs-utils未安装
+
+
+```
+
+
+
 
 
 ```powershell
@@ -1146,6 +1195,10 @@ NAME              READY   STATUS    RESTARTS   AGE   IP
 elasticsearch-0   1/1     Running   0          15m   10.244.0.126 
 elasticsearch-1   1/1     Running   0          15m   10.244.0.127
 elasticsearch-2   1/1     Running   0          15m   10.244.0.128
+
+# 验证无头服务
+kubectl -n logging exec elasticsearch-0 curl elasticsearch-2.es-svc-headless:9200
+
 
 # 查看pvc
 kubectl -n logging get pvc
@@ -1172,9 +1225,13 @@ $ curl 10.104.226.175:9200
     "minimum_index_compatibility_version" : "6.0.0-beta1"
   },
   "tagline" : "You Know, for Search"
+  
+  
 ```
 
 ##### 部署kibana
+
+> kibana与es版本要一致
 
 ###### 部署分析
 
@@ -1207,7 +1264,7 @@ spec:
     spec:
       containers:
       - name: kibana
-        image: 172.21.51.143:5000/kibana/kibana:7.4.2
+        image: 192.168.150.128:5000/kibana:7.4.2
         resources:
           limits:
             cpu: 1000m
@@ -1268,7 +1325,7 @@ $ kubectl -n logging get po -o wide
 
 ## 配置域名解析 kibana.luffy.com，并访问服务进行验证，若可以访问，说明连接es成功
 
-# 查看pod日志
+# 查看pod日志,是否和es通信成功
 kubectl -n logging logs -f kibana-434343
 
 # dev_tool/console 配置kibana
@@ -1276,7 +1333,10 @@ GET /_cat/health?v
 GET /_cat/indices
 
 # 在 es中查询
-curl 10.104.226.175:9200/_cat/health?v
+[root@k8s-master es]# curl 10.111.224.104:9200/_cat/health?v
+epoch      timestamp cluster             status node.total node.data shards pri relo init unassign pending_tasks max_task_wait_time active_shards_percent
+1635665669 07:34:29  luffy-elasticsearch green           3         3      6   3    0    0        0             0                  -                100.0%
+
 ```
 
 
@@ -1289,11 +1349,11 @@ curl 10.104.226.175:9200/_cat/health?v
 2. 为进一步控制资源，会为daemonset指定一个选择标签，fluentd=true来做进一步过滤，只有带有此标签的节点才会部署fluentd
 3. 日志采集，需要采集哪些目录下的日志，采集后发送到es端，因此需要配置的内容比较多，我们选择使用configmap的方式把配置文件整个挂载出来
 
-```
+```shell
 # 查看container的日志
 ll /var/lib/docker/containers/fsdasfdsafdsa
 
-# node1下的所有log，软链接到container下的log
+# node1下的所有log，软链接到，/var/log/pods/logging， 再到container下的log
 ls /var/log/containers/*.log -l
 tail -f /var/log/containers/xxxx
 
@@ -1301,17 +1361,12 @@ tail -f /var/log/containers/xxxx
 fluentd,namespace,pod --> k8s api --> more --> <record> --> es
 ```
 
-###### 部署服务
-
 `efk/fluentd-es-config-main.yaml`主配置
 
-```yaml
+```shell
 apiVersion: v1
 data:
   fluent.conf: |-
-    # This is the root config file, which only includes components of the actual configuration
-    #
-    #  Do not collect fluentd's own logs to avoid infinite loops.
     <match fluent.**>
     @type null
     </match>
@@ -1323,8 +1378,13 @@ metadata:
     addonmanager.kubernetes.io/mode: Reconcile
   name: fluentd-es-config-main
   namespace: logging
-
 ```
+
+> This is the root config file, which only includes components of the actual configuration
+>
+>  Do not collect fluentd's own logs to avoid infinite loops.
+
+
 
 配置文件，fluentd-config.yaml，注意点：
 
@@ -1333,6 +1393,78 @@ metadata:
 3. match输出到es端的flush配置
 
 `efk/fluentd-configmap.yaml`子配置
+
+粘贴性文档
+
+```yaml
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: fluentd-config
+  namespace: logging
+  labels:
+    addonmanager.kubernetes.io/mode: Reconcile
+data:
+  containers.input.conf: |-
+    <source>
+      @id fluentd-containers.log
+      @type tail
+      path /var/log/containers/*.log   
+      pos_file /var/log/es-containers.log.pos
+      time_format %Y-%m-%dT%H:%M:%S.%NZ
+      localtime
+      tag raw.kubernetes.*   
+      format json
+      read_from_head false  
+    </source>
+    <match raw.kubernetes.**>
+      @id raw.kubernetes
+      @type detect_exceptions  
+      remove_tag_prefix raw
+      message log
+      stream stream
+      multiline_flush_interval 5
+      max_bytes 500000
+      max_lines 1000
+    </match>
+    <filter **>
+      @id filter_concat
+      @type concat
+      key message
+      multiline_end_regexp /\n$/
+      separator ""
+    </filter>
+  output.conf: |-
+    <filter kubernetes.**>
+      @type kubernetes_metadata  
+    </filter>
+    <match **>
+      @id elasticsearch
+      @type elasticsearch
+      @log_level info
+      include_tag_key true
+      hosts elasticsearch-0.es-svc-headless:9200,elasticsearch-1.es-svc-headless:9200,elasticsearch-2.es-svc-headless:9200
+      logstash_format true
+      request_timeout    30s
+      <buffer>
+        @type file
+        path /var/log/fluentd-buffers/kubernetes.system.buffer
+        flush_mode interval
+        retry_type exponential_backoff
+        flush_thread_count 2
+        flush_interval 5s
+        retry_forever
+        retry_max_interval 30
+        chunk_limit_size 2M
+        queue_limit_length 8
+        overflow_action block
+      </buffer>
+    </match>
+```
+
+
+
+
 
 ```yaml
 kind: ConfigMap
@@ -1525,14 +1657,9 @@ kubectl label node k8s-slave1 fluentd-
 
 # 创建服务
 $ kubectl apply -f fluentd-es-config-main.yaml  
-configmap/fluentd-es-config-main created  
 $ kubectl apply -f fluentd-configmap.yaml  
-configmap/fluentd-config created  
 $ kubectl apply -f fluentd.yaml  
-serviceaccount/fluentd-es created  
-clusterrole.rbac.authorization.k8s.io/fluentd-es created  
-clusterrolebinding.rbac.authorization.k8s.io/fluentd-es created  
-daemonset.extensions/fluentd-es created 
+
 
 ## 然后查看一下pod是否已经在k8s-slave1
 $ kubectl -n logging get po -o wide
@@ -1591,6 +1718,8 @@ counter                       1/1     Running   0          6s
 也可以通过其他元数据来过滤日志数据，比如可以单击任何日志条目以查看其他元数据，如容器名称，Kubernetes 节点，命名空间等，比如kubernetes.pod_name : counter
 
 到这里，我们就在 Kubernetes 集群上成功部署了 EFK ，要了解如何使用 Kibana 进行日志数据分析，可以参考 Kibana 用户指南文档：https://www.elastic.co/guide/en/kibana/current/index.html
+
+>  KQL查询语句：https://www.cnblogs.com/-beyond/p/14159002.html
 
 
 
@@ -3130,8 +3259,6 @@ spec:
               number: 3000
 ```
 
-访问
-
 ```shell
 [root@k8s-master grafana]# kubectl apply -f grafana-all.yaml 
 
@@ -3293,7 +3420,7 @@ $ kubectl -n monitor delete po grafana-594f447d6c-jmjsw
 100-avg(irate(node_cpu_seconds_total{mode="idle",instance=~"$node"}[5m])) by (instance)*100
 ```
 
-
+![image-20211031172925326](第四天 Kubernetes集群的日志及监控-更新版.assets/image-20211031172925326.png)
 
 ###### Metrics指标类型与PromQL
 
@@ -3425,7 +3552,7 @@ node_cpu_seconds_total
 - `iowait`(wa)
   从系统启动开始，累计到当前时刻，IO等待时间
 - `idle`(id)
-  从系统启动开始，累计到当前时刻，除IO等待时间以外的其它等待时间，亦即空闲时间
+  从系统启动开始，累计到当前时刻，除IO等待时间以外的其它等待时间，亦即`空闲时间`
 
 
 
@@ -3433,7 +3560,7 @@ node_cpu_seconds_total
 
 先来考虑如何我们如何计算CPU利用率，假如我的k8s-master节点是4核CPU，我们来考虑如下场景：
 
-- 过去60秒内每个CPU核心处于idle状态的时长，假如分别为 :
+- 过去60秒内每个CPU核心处于idle空闲状态的时长，假如分别为 :
   - cpu0：20s
   - cpu1：30s
   - cpu2：50s
@@ -3511,19 +3638,19 @@ rate(node_cpu_seconds_total{instance="k8s-master",mode="idle"}[1m])
 
 
 
-##### Alertmanager
+##### Alertmanager：告警
 
 Alertmanager是一个独立的告警模块。
 
-- 接收Prometheus等客户端发来的警报
-- 通过分组、删除重复等处理，并将它们通过路由发送给正确的接收器；
-- 告警方式可以按照不同的规则发送给不同的模块负责人。Alertmanager支持Email, Slack，等告警方式, 也可以通过webhook接入钉钉等国内IM工具。
+> - 接收Prometheus等客户端发来的警报
+> - 通过分组、删除重复等处理，并将它们通过路由发送给正确的接收器；
+> - 告警方式可以按照不同的规则发送给不同的模块负责人。Alertmanager支持Email, Slack，等告警方式, 也可以通过webhook接入钉钉等国内IM工具。
 
 ![](images\alertmanager.png)
 
 
 
-如果集群主机的内存使用率超过80%，且该现象持续了2分钟？想实现这样的监控告警，如何做？
+`如果集群主机的内存使用率超过80%，且该现象持续了2分钟？想实现这样的监控告警，`如何做？
 
 从上图可得知设置警报和通知的主要步骤是：
 
@@ -3556,10 +3683,10 @@ data:
       # 当alertmanager持续多长时间未接收到告警后标记告警状态为 resolved
       resolve_timeout: 5m
       # 配置邮件发送信息
-      smtp_smarthost: 'smtp.163.com:25'
-      smtp_from: 'earlene163@163.com'
-      smtp_auth_username: 'earlene163@163.com'
-      smtp_auth_password: 'GENLAXFHNDWNVVVL'
+      smtp_smarthost: 'smtp.126.com:25'
+      smtp_from: 'liangshuo1994@126.com'
+      smtp_auth_username: 'liangshuo1994@126.com'
+      smtp_auth_password: 'HPKIUHQCSYRPMGVL'
       smtp_require_tls: false
     # 所有报警信息进入后的根路由，用来设置报警的分发策略
     route:
@@ -3583,7 +3710,7 @@ data:
     receivers:
     - name: 'default'
       email_configs:
-      - to: '654147123@qq.com'
+      - to: '849923747@qq.com'
         send_resolved: true  # 接受告警恢复的通知
 kind: ConfigMap
 metadata:
@@ -3682,6 +3809,16 @@ spec:
               number: 9093
 ```
 
+设置本地/etc/host文件访问
+
+```
+127.0.0.1 alertmanager.luffy.com
+```
+
+
+
+
+
 ###### 配置Prometheus与Alertmanager对话
 
 ![](images\alertmanager.png)
@@ -3718,8 +3855,11 @@ data:
           - alertmanager:9093
 ...
   
-  
 $ kubectl apply -f prometheus-configmap.yaml
+
+vim prometheus
+kubectl -n monitor delete cm prometheus-config
+kubectl -n monitor create cm prometheus-config --from-file=prometheus.yml
 
 # 现在已经有监控数据了，因此使用prometheus提供的reload的接口，进行服务重启
 
@@ -3729,7 +3869,7 @@ prometheus-dcb499cbf-pljfn            1/1     Running   0          47h    10.244
 
 $ kubectl -n monitor exec -ti prometheus-dcb499cbf-pljfn cat /etc/prometheus/prometheus.yml |grep alertmanager
 
-# 使用软加载的方式，
+# 使用软加载的方式，重启
 $ curl -X POST 10.244.1.167:9090/-/reload
 ```
 
@@ -3742,7 +3882,11 @@ $ curl -X POST 10.244.1.167:9090/-/reload
 在哪里配置？同样是在prometheus-configmap中：
 
 ```powershell
+# 与prometheus.yaml同目录
+kubectl -n monitor exec prometheus-dfafs -- ls /etc/prometheus
+
 $ kuectl -n monitor edit configmap prometheus-config
+或者$ vi prometheus.yml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -3761,7 +3905,7 @@ data:
     # Load rules once and periodically evaluate them according to the global  'evaluation_interval'.
     rule_files:
       - /etc/prometheus/alert_rules.yml
-      # - "first_rules.yml"
+      # - "first_rules.yml" 
       # - "second_rules.yml"
     scrape_configs:
     - job_name: 'prometheus'
@@ -3775,7 +3919,8 @@ data:
 rules.yml我们同样使用configmap的方式挂载到prometheus容器内部，因此只需要在已有的configmap中加一个数据项目
 
 ```powershell
-$ vim prometheus-configmap.yaml
+# 配置完成后的效果
+$ cat prometheus-configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -3813,6 +3958,33 @@ data:
           description: "{{$labels.instance}}: node load is below 1 (current value is: {{ $value }}"
 ```
 
+```yaml
+# 创建告警规则
+$ vim alert_rules.yml
+groups:
+- name: node_metrics
+  rules:
+  - alert: NodeLoad
+    expr: node_load15 < 1
+    for: 2m
+    annotations:
+      summary: "{{$labels.instance}}: Low node load detected"
+      description: "{{$labels.instance}}: node load is below 1 (current value is: {{ $value }}"
+      
+# 配置生效，多目录挂载
+$ kubectl -n monitor delete cm prometheus-config
+$ kubectl -n monitor create cm prometheus-config --from-file=prometheus.yml --from-file=alert_rules.yml
+
+# 查看
+$  kubectl -n monitor get cm prometheus-config -oyaml
+$ kubectl -n monitor exec prometheus-dfafs -- ls /etc/prometheus
+
+# 使用软加载的方式，重启
+$ curl -X POST 10.244.1.167:9090/-/reload
+```
+
+![image-20211102083835833](第四天 Kubernetes集群的日志及监控-更新版.assets/image-20211102083835833.png)
+
 
 
 告警规则的几个要素：
@@ -3844,9 +4016,12 @@ data:
 
 
 
-对于已经 `pending` 或者 `firing` 的告警，Prometheus 也会将它们存储到时间序列`ALERTS{}`中。当然我们也可以通过表达式去查询告警实例：
+对于已经 `pending` 或者 `firing` 的告警，Prometheus 也会将它们存储到时间序列`ALERTS{}`中。
+
+当然我们也可以通过表达式去prometheus中查询告警实例：
 
 ```powershell
+# 去prometheus中查询告警实例
 ALERTS{}
 ```
 
@@ -3855,14 +4030,26 @@ ALERTS{}
 查看Alertmanager日志：
 
 ```powershell
+[root@k8s-master alertmanager]# kubectl -n monitor logs -f alertmanager-796996c79f-k2krt
 level=warn ts=2020-07-28T13:43:59.430Z caller=notify.go:674 component=dispatcher receiver=email integration=email[0] msg="Notify attempt failed, will retry later" attempts=1 err="*email.loginAuth auth: 550 User has no permission"
 ```
 
 说明告警已经推送到Alertmanager端了，但是邮箱登录的时候报错，这是因为邮箱默认没有开启第三方客户端登录。因此需要登录163邮箱设置SMTP服务允许客户端登录。
 
+```
+level=debug ts=2021-12-17T18:14:36.997Z caller=notify.go:685 component=dispatcher receiver=default integration=email[0] msg="Notify success" attempts=1
+level=debug ts=2021-12-17T18:15:06.528Z caller=dispatch.go:473 component=dispatcher aggrGroup="{}/{}:{alertname=\"NodeLoad\"}" msg=flushing alerts="[NodeLoad[5d17874][active] NodeLoad[b131006][active]]"
+```
 
 
-###### 自定义webhook实现告警消息的推送
+
+
+
+
+
+
+
+###### 自定义webhook实现告警消息的推送：推荐
 
 目前官方内置的第三方通知集成包括：邮件、 即时通讯软件（如Slack、Hipchat）、移动应用消息推送(如Pushover)和自动化运维工具（例如：Pagerduty、Opsgenie、Victorops）。可以在alertmanager的管理界面中查看到。
 
@@ -3900,9 +4087,9 @@ receivers:
     url: http://demo-webhook/alert/send
 ```
 
+![image-20211102090131989](第四天 Kubernetes集群的日志及监控-更新版.assets/image-20211102090131989.png)
 
-
-当我们配置了上述webhook地址，则当告警路由到`demo-webhook`时，alertmanager端会向webhook地址推送POST请求：
+当我们配置了上述webhook地址，则当告警路由到`alertmanager`时，alertmanager端会向webhook地址推送POST请求：
 
 ```powershell
 $ curl -X POST -d"$demoAlerts"  http://demo-webhook/alert/send
@@ -3915,7 +4102,7 @@ $ echo $demoAlerts
   "groupLabels": <object>, 
   "commonLabels": <object>, 
   "commonAnnotations": <object>, 
-  "externalURL": <string>, // backlink to the Alertmanager. 
+  "externalURL": <string>, // ba   cklink to the Alertmanager. 
   "alerts": 
    [{ 
      "labels": <object>, 
@@ -3936,18 +4123,26 @@ $ echo $demoAlerts
 
 如何给钉钉群聊发送消息？ 钉钉机器人
 
-钉钉群聊机器人设置：
+钉钉群聊机器人设置：在钉钉添加机器人
 
 每个群聊机器人在创建的时候都会生成唯一的一个访问地址：
 
 ```powershell
 https://oapi.dingtalk.com/robot/send?access_token=f628f749a7ad70e86ca7bcb68658d0ce5af7c201ce8ce32acaece4c592364ca9
+
+https://oapi.dingtalk.com/robot/send?access_token=d7913b2441e07611caee60b2c1f71cd5450574b1c31628b9289537992f97bc1a
 ```
 
 这样，我们就可以使用如下方式来模拟给群聊机器人发送请求，实现消息的推送：
 
 ```powershell
-curl 'https://oapi.dingtalk.com/robot/send?access_token=f628f749a7ad70e86ca7bcb68658d0ce5af7c201ce8ce32acaece4c592364ca9' \
+curl 'https://oapi.dingtalk.com/robot/send?access_token=5c28a701cfcff15f79e2b2f15dc9d0b0541df3033f033b4286429a1875188fa7' \
+   -H 'Content-Type: application/json' \
+   -d '{"msgtype": "text","text": {"content": "我就是我, 是不一样的烟火"}}'
+```
+
+```
+curl 'https://oapi.dingtalk.com/robot/send?access_token=d7913b2441e07611caee60b2c1f71cd5450574b1c31628b9289537992f97bc1a' \
    -H 'Content-Type: application/json' \
    -d '{"msgtype": "text","text": {"content": "我就是我, 是不一样的烟火"}}'
 ```
@@ -3955,6 +4150,10 @@ curl 'https://oapi.dingtalk.com/robot/send?access_token=f628f749a7ad70e86ca7bcb6
 
 
 
+
+
+
+部署webhook-dingtalk
 
  https://gitee.com/agagin/prometheus-webhook-dingtalk 
 
@@ -3971,11 +4170,12 @@ $ ./prometheus-webhook-dingtalk --config.file=config.yml
 假如使用如下配置：
 
 ```powershell
+# vim config.yml
 targets:
   webhook_dev:
-    url: https://oapi.dingtalk.com/robot/send?access_token=f628f749a7ad70e86ca7bcb68658d0ce5af7c201ce8ce32acaece4c592364ca9
+    url: https://oapi.dingtalk.com/robot/send?access_token=5c28a701cfcff15f79e2b2f15dc9d0b0541df3033f033b4286429a1875188fa7
   webhook_ops:
-    url: https://oapi.dingtalk.com/robot/send?access_token=d4e7b72eab6d1b2245bc0869d674f627dc187577a3ad485d9c1d131b7d67b15b
+    url: https://oapi.dingtalk.com/robot/send?access_token=d7913b2441e07611caee60b2c1f71cd5450574b1c31628b9289537992f97bc1a
 ```
 
 则prometheus-webhook-dingtalk启动后会自动支持如下API的POST访问：
@@ -3997,7 +4197,7 @@ http://localhost:8060/dingtalk/webhook_ops/send
 
 
 
-配置文件：
+1）配置dingTalk的config文件：
 
 ```powershell
 $ cat webhook-dingtalk-configmap.yaml
@@ -4006,14 +4206,21 @@ data:
   config.yml: |
     targets:
       webhook_dev:
-        url: https://oapi.dingtalk.com/robot/send?access_token=f628f749a7ad70e86ca7bcb68658d0ce5af7c201ce8ce32acaece4c592364ca9
+        url: https://oapi.dingtalk.com/robot/send?access_token=5c28a701cfcff15f79e2b2f15dc9d0b0541df3033f033b4286429a1875188fa7
+      webhook_ops:
+   		 url: https://oapi.dingtalk.com/robot/send?access_token=d7913b2441e07611caee60b2c1f71cd5450574b1c31628b9289537992f97bc1a
 kind: ConfigMap
 metadata:
   name: webhook-dingtalk-config
   namespace: monitor
+  
+$ kubectl apply -f webhook-dingtalk-configmap.yaml
+$ [root@k8s-master alertmanager]# kubectl -n monitor get configmaps
 ```
 
-Deployment和Service
+
+
+2）创建Deployment和Service
 
 ```powershell
 $ cat webhook-dingtalk-deploy.yaml
@@ -4075,11 +4282,14 @@ spec:
 
 
 
-创建：
+3）创建：
 
 ```powershell
 $ kubectl apply -f webhook-dingtalk-configmap.yaml
 $ kubectl apply -f webhook-dingtalk-deploy.yaml
+
+[root@k8s-master alertmanager]# kubectl -n monitor get configmaps
+[root@k8s-master alertmanager]# kubectl -n monitor get deployments.apps
 
 # 查看日志，可以得知当前的可用webhook日志
 $ kubectl -n monitor logs -f webhook-dingtalk-f7f5589c9-qglkd
@@ -4092,10 +4302,14 @@ level=info ts=2020-07-30T14:05:40.963Z caller=web.go:210 component=web msg="Star
 
 
 
-修改Alertmanager路由及webhook配置：
+4）修改Alertmanager路由及webhook配置：
 
 ```powershell
+$ kubectl -n monitor get svc
+
 $ kubectl -n monitor edit configmap alertmanager
+$ vim config.yaml
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -4135,22 +4349,27 @@ data:
     receivers:
     - name: 'default'
       email_configs:
-      - to: '654147123@qq.com'
+      - to: '849923747@qq.com'
         send_resolved: true  # 接受告警恢复的通知
       webhook_configs:
       - send_resolved: true
         url: http://webhook-dingtalk:8060/dingtalk/webhook_dev/send
+        
+$ kubectl apply -f config.yaml
+
+# 重启
+kubectl -n monitor delete pod alermanager-fdafsaf
 ```
 
 验证钉钉消息是否正常收到。
 
-
+<img src="C:\Users\hua'wei\AppData\Roaming\Typora\typora-user-images\image-20211223003516376.png" alt="image-20211223003516376" style="zoom:50%;" />
 
 
 
 ###### 基于Label的动态告警处理
 
-真实的场景中，我们往往期望可以给告警设置级别，而且可以实现不同的报警级别可以由不同的receiver接收告警消息。
+真实的场景中，我们往往期望可以给告警设置级别，而且可以实现不同的报警级别可以由不同的receiver接收告警消息。 
 
 Alertmanager中路由负责对告警信息进行分组匹配，并向告警接收器发送通知。告警接收器可以通过以下形式进行配置： 
 
@@ -4177,37 +4396,51 @@ receivers:
 因此可以为了更全面的感受报警的逻辑，我们再添加两个报警规则：
 
 ```powershell
-  alert_rules.yml: |
-    groups:
-    - name: node_metrics
-      rules:
-      - alert: NodeLoad
-        expr: node_load15 < 1
-        for: 2m
-        labels:
-          severity: normal
-        annotations:
-          summary: "{{$labels.instance}}: Low node load detected"
-          description: "{{$labels.instance}}: node load is below 1 (current value is: {{ $value }}"
-      - alert: NodeMemoryUsage
-        expr: (node_memory_MemTotal_bytes - (node_memory_MemFree_bytes + node_memory_Buffers_bytes + node_memory_Cached_bytes)) / node_memory_MemTotal_bytes * 100 > 30
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: "{{$labels.instance}}: High Memory usage detected"
-          description: "{{$labels.instance}}: Memory usage is above 40% (current value is: {{ $value }}"
-    - name: targets_status
-      rules:
-      - alert: TargetStatus
-        expr: up == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "{{$labels.instance}}: prometheus target down"
-          description: "{{$labels.instance}}: prometheus target down，job is {{$labels.job}}"
+$ vim alert_rules.yml: 
+groups:
+- name: node_metrics
+  rules:
+  - alert: NodeLoad
+    expr: node_load15 < 1
+    for: 2m
+    labels:
+      severity: normal
+    annotations:
+      summary: "{{$labels.instance}}: Low node load detected"
+      description: "{{$labels.instance}}: node load is below 1 (current value is: {{ $value }}"
+  - alert: NodeMemoryUsage
+    expr: (node_memory_MemTotal_bytes - (node_memory_MemFree_bytes + node_memory_Buffers_bytes + node_memory_Cached_bytes)) / node_memory_MemTotal_bytes * 100 > 30
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{{$labels.instance}}: High Memory usage detected"
+      description: "{{$labels.instance}}: Memory usage is above 40% (current value is: {{ $value }}"
+- name: targets_status
+  rules:
+  - alert: TargetStatus
+    expr: up == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{{$labels.instance}}: prometheus target down"
+      description: "{{$labels.instance}}: prometheus target down，job is {{$labels.job}}"
 ```
+
+重建configmap
+
+```shell
+[root@k8s-master prometheus]# kubectl -n monitor delete cm prometheus-config 
+
+[root@k8s-master prometheus]# kubectl -n monitor create cm prometheus-config --from-file=prometheus.yml --from-file=alert_rules.yml
+
+[root@k8s-master prometheus]# kubectl -n monitor exec prometheus-7d6799c84c-x9n6r -- cat /etc/prometheus/alert_rules.yml
+```
+
+
+
+
 
 我们为不同的报警规则设置了不同的标签，如`severity: critical`，针对规则中的label，来配置alertmanager路由规则，实现转发给不同的接收者。
 
@@ -4224,11 +4457,12 @@ data:
       # 当alertmanager持续多长时间未接收到告警后标记告警状态为 resolved
       resolve_timeout: 5m
       # 配置邮件发送信息
-      smtp_smarthost: 'smtp.163.com:25'
-      smtp_from: 'earlene163@163.com'
-      smtp_auth_username: 'earlene163@163.com'
+  	  smtp_smarthost: 'smtp.126.com:465'
+      smtp_from: 'liangshuo1994@126.com'
+      smtp_auth_username: 'liangshuo1994@126.com'
+
       # 注意这里不是邮箱密码，是邮箱开启第三方客户端登录后的授权码
-      smtp_auth_password: 'RMAOPQVHKLPYFVHZ'
+      smtp_auth_password: 'HPKIUHQCSYRPMGVL'
       smtp_require_tls: false
     # 所有报警信息进入后的根路由，用来设置报警的分发策略
     route:
@@ -4259,7 +4493,7 @@ data:
     receivers:
     - name: 'default'
       email_configs:
-      - to: '654147123@qq.com'
+      - to: '849923747@qq.com'
         send_resolved: true  # 接受告警恢复的通知
     - name: 'critical_alerts'
       webhook_configs:
@@ -4270,6 +4504,18 @@ data:
       - send_resolved: true
         url: http://webhook-dingtalk:8060/dingtalk/webhook_dev/send
 ```
+
+配置生效
+
+```
+kubectl apply -f config.yaml
+kubectl -n monitor delete pod alertmanager-796996c79f-thv57
+
+```
+
+
+
+
 
 
 
@@ -4295,6 +4541,14 @@ metadata:
 
 分别更新Prometheus和Alertmanager配置，查看报警的发送。
 
+```shell
+
+# 使用软加载的方式，重启
+$ curl -X POST 10.244.1.167:9090/-/reload
+```
+
+![image-20211223014413189](C:\Users\hua'wei\AppData\Roaming\Typora\typora-user-images\image-20211223014413189.png)
+
 
 
 ###### 抑制和静默
@@ -4305,7 +4559,7 @@ metadata:
 
   抑制是当出现其它告警的时候压制当前告警的通知，可以有效的防止告警风暴。
 
-  比如当机房出现网络故障时，所有服务都将不可用而产生大量服务不可用告警，但这些警告并不能反映真实问题在哪，真正需要发出的应该是网络故障告警。当出现网络故障告警的时候，应当抑制服务不可用告警的通知。 
+  比如`当机房出现网络故障时`，所有服务都将不可用而`产生大量服务不可用告警`，但这些警告并不能反映真实问题在哪，`真正需要发出的应该是网络故障告警`。当出现网络故障告警的时候，应当抑制服务不可用告警的通知。 
 
    在Alertmanager配置文件中，使用inhibit_rules定义一组告警的抑制规则： 
 
@@ -4346,7 +4600,7 @@ metadata:
 
   如当集群中的某一个主机节点异常宕机导致告警NodeDown被触发，同时在告警规则中定义了告警级别severity=critical。由于主机异常宕机，该主机上部署的所有服务，中间件会不可用并触发报警。根据抑制规则的定义，如果有新的告警级别为severity=critical，并且告警中标签node的值与NodeDown告警的相同，则说明新的告警是由NodeDown导致的，则启动抑制机制停止向接收器发送通知。 
 
-  演示：实现如果 NodeMemoryUsage 报警触发，则抑制NodeLoad指标规则引起的报警。
+  >  演示：实现如果 NodeMemoryUsage 报警触发，则抑制NodeLoad指标规则引起的报警。
 
   ```powershell
       inhibit_rules:
@@ -4397,6 +4651,10 @@ k8s对监控接口进行了标准化：
 
   对应的接口是 custom.metrics.k8s.io，主要的实现是 Prometheus， 它提供的是资源监控和自定义监控
 
+![image-20211224001440082](C:\Users\hua'wei\AppData\Roaming\Typora\typora-user-images\image-20211224001440082.png)
+
+
+
 安装完metrics-server后，利用kube-aggregator的功能，实现了metrics api的注册。可以通过如下命令
 
 ```powershell
@@ -4435,6 +4693,8 @@ $ git clone https://github.com/DirectXMan12/k8s-prometheus-adapter.git
 # 最新release版本v0.7.0，代码切换到v0.7.0分支
 $ git checkout v0.7.0
 
+# 在线失败，下载zip文件，上传解压
+$ unzip -o prometh-xxxxx
 ```
 
 查看部署说明  https://github.com/DirectXMan12/k8s-prometheus-adapter/tree/v0.7.0/deploy 
@@ -4485,7 +4745,7 @@ $ git checkout v0.7.0
      name: custom-metrics-apiserver
      namespace: monitor
      
-   # 新建配置文件
+   # 新建配置文件，一点点添加
    $ vi custom-metrics-configmap.yaml
    apiVersion: v1
    kind: ConfigMap
@@ -4502,6 +4762,7 @@ $ git checkout v0.7.0
 
    ```powershell
    # 资源清单文件默认用的命名空间是custom-metrics，替换为本例中使用的monitor
+   $ cd  /prometheus-adapter-master/deploy/manifests
    $ sed -i 's/namespace: custom-metrics/namespace: monitor/g' yamls/*
    
    ```
@@ -4510,6 +4771,7 @@ $ git checkout v0.7.0
 
    ```powershell
    # 由于adapter会和Prometheus交互，因此需要配置对接的Prometheus地址
+   # 替换掉22行:adapter的地址
    # 替换掉28行：yamls/custom-metrics-apiserver-deployment.yaml 中的--prometheus-url
    $ vim yamls/custom-metrics-apiserver-deployment.yaml
    ...
@@ -4545,6 +4807,7 @@ $ git checkout v0.7.0
 ```powershell
 $ kubectl api-versions 
 custom.metrics.k8s.io/v1beta1
+custom.metrics.k8s.io/v1beta2
 
 $ kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1 |jq
 {                                                    
@@ -4593,6 +4856,37 @@ spec:
           name: http
 ```
 
+```shell
+$ cat custom-metrics-demo2.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: front-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: front-app
+  template:
+    metadata:
+      labels:
+        app: front-app
+    spec:
+      containers:
+      - name: front-app
+        image: luxas/autoscale-demo:v0.1.2
+        resources:
+          limits:
+            cpu: 50m
+          requests:
+            cpu: 50m
+        ports:
+        - containerPort: 80
+          name: http
+```
+
+
+
 
 
 部署：
@@ -4612,6 +4906,15 @@ nginx_vts_server_requests_total{host="*",code="4xx"} 0
 nginx_vts_server_requests_total{host="*",code="5xx"} 0
 nginx_vts_server_requests_total{host="*",code="total"} 8
 ...
+
+
+# 查看front-app的数据
+# 每次访问1次，count+1
+[root@k8s-master deploy]# curl  10.244.0.183:8080/metrics
+# HELP http_requests_total The amount of requests served by the server in total
+# TYPE http_requests_total counter
+http_requests_total 1
+
 ```
 
 
@@ -4636,7 +4939,40 @@ spec:
   selector:
     app: custom-metrics-demo
   type: ClusterIP
+  
+  
+$ cat front-app-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: front-app
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+  selector:
+    app: front-app
+  type: ClusterIP
+  
+  
+  # 部署
+  [root@k8s-master deploy]# kubectl apply -f front-app-svc.yaml
 ```
+
+在prometheus页面查看
+
+![image-20211224014337878](C:\Users\hua'wei\AppData\Roaming\Typora\typora-user-images\image-20211224014337878.png)
+
+![image-20211224014354721](C:\Users\hua'wei\AppData\Roaming\Typora\typora-user-images\image-20211224014354721.png)
+
+
+
+
 
 自动注册为Prometheus的采集Targets。
 
@@ -4714,15 +5050,30 @@ sum(rate(nginx_vts_server_requests_total[2m])) by(kubernetes_pod_name)
 
 2. 告诉Adapter，哪些自定义指标可以使用
 
+   示例1：
+
    ```powershell
    rules:
    - seriesQuery: 'nginx_vts_server_requests_total{host="*",code="total"}'
    
    ```
 
+   示例2
+
+   ```shell
+   rules:
+   - seriesQuery: 'http_requests_total{}'
+   ```
+
+   
+
    seriesQuery是PromQL语句，和直接用`nginx_vts_server_requests_total`查询到的结果一样，凡是seriesQuery可以查询到的指标，都可以用作自定义指标
 
-3. 告诉Adapter，指标中的标签和k8s中的资源对象的关联关系
+
+
+1. 告诉Adapter，指标中的标签和k8s中的资源对象的关联关系
+
+   示例1
 
    ```powershell
    rules:
@@ -4733,6 +5084,23 @@ sum(rate(nginx_vts_server_requests_total[2m])) by(kubernetes_pod_name)
          kubernetes_pod_name: {resource: "pod"}
    ```
 
+   示例2
+
+   ```shell
+   rules:
+   - seriesQuery: 'http_requests_total{}'
+     resources:
+       overrides:
+         kubernetes_namespace: {resource: "namespace"}
+         kubernetes_pod_name: {resource: "pod"}
+   ```
+
+   
+
+   > hpa拿着k8s里的namespace和pod，来查询adaptor去查询Prometheus的时候，根据resource的适配来转换, namespace=defalut，pod=front-app-xxx，kubernetes_namespace="defalut"
+
+   ![image-20211224234850979](C:\Users\hua'wei\AppData\Roaming\Typora\typora-user-images\image-20211224234850979.png)
+
    我们查询到的可用指标格式为：
 
    ```powershell
@@ -4741,7 +5109,9 @@ sum(rate(nginx_vts_server_requests_total[2m])) by(kubernetes_pod_name)
 
    由于HPA在调用Adapter接口的时候，告诉Adapter的是查询哪个命名空间下的哪个Pod的指标，因此，Adapter在去查询的时候，需要做一层适配转换（因为并不是每个prometheus查询到的结果中都是叫做`kubernetes_namespace`和`kubernetes_pod_name`）
 
-4. 指定自定义的指标名称，供HPA配置使用
+2. 指定自定义的指标名称，供HPA配置使用
+
+   示例1：
 
    ```powershell
    rules:
@@ -4755,9 +5125,28 @@ sum(rate(nginx_vts_server_requests_total[2m])) by(kubernetes_pod_name)
        as: "${1}_per_second"
    ```
 
+   示例2：
+
+   ```shell
+   rules:
+   - seriesQuery: 'http_requests_total{}'
+     resources:
+       overrides:
+         kubernetes_namespace: {resource: "namespace"}
+         kubernetes_pod_name: {resource: "pods"}
+     name:
+       as: "http_requests_total_per_second"
+   ```
+
+   
+
+   
+
    因为Adapter转换完之后的指标含义为：每秒钟的请求数。因此提供指标名称，该配置根据正则表达式做了匹配替换，转换完后的指标名称为：`nginx_vts_server_requests_per_second`，HPA规则中可以直接配置该名称。
 
-5. 告诉Adapter如何获取最终的自定义指标值
+3. 告诉Adapter如何获取最终的自定义指标值
+
+   示例1
 
    ```powershell
        rules:
@@ -4772,11 +5161,41 @@ sum(rate(nginx_vts_server_requests_total[2m])) by(kubernetes_pod_name)
          metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'
    ```
 
+   示例2：
+
+   ```shell
+       rules:
+       - seriesQuery: 'http_requests_total{}'
+         resources:
+           overrides:
+             kubernetes_namespace: {resource: "namespace"}
+             kubernetes_pod_name: {resource: "pod"}
+         name:
+           as: "http_requests_total_per_second"
+         metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'
+   ```
+
+   
+
+   
+
    我们最终期望的写法可能是这样：
+
+   > 这个值=0.06666，2m超过n次，指定扩容
+
+   示例1
 
    ```powershell
    sum(rate(nginx_vts_server_requests_total{host="*",code="total",kubernetes_namespace="default"}[2m])) by (kubernetes_pod_name)
    ```
+
+   示例2
+
+   ```shell
+   sum(rate(http_requests_total{kubernetes_namespace="default",kubernetes_pod_name="front-app-5b99489f65-5wsjn"}[2m])) by (kubernetes_pod_name)
+   ```
+
+   ![image-20211224235256730](C:\Users\hua'wei\AppData\Roaming\Typora\typora-user-images\image-20211224235256730.png)
 
    但是Adapter提供了更简单的写法：
 
@@ -4812,6 +5231,32 @@ data:
       metricsQuery: (sum(rate(<<.Series>>{<<.LabelMatchers>>}[1m])) by (<<.GroupBy>>))
 
 ```
+
+示例2：
+
+```shell
+$ vi custom-metrics-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adapter-config
+  namespace: monitor
+data:
+  config.yaml: |
+    rules:
+    - seriesQuery: 'http_requests_total{}'
+      resources:
+        overrides:
+          kubernetes_namespace: {resource: "namespace"}
+          kubernetes_pod_name: {resource: "pod"}
+      name:
+        as: "http_requests_total_per_second"
+      metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'
+```
+
+
+
+
 
 需要更新configmap并重启adapter服务：
 
@@ -4859,7 +5304,7 @@ $ kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1 |jq
 ```powershell
 Notice that we get an entry for both "pods" and "namespaces" -- the adapter exposes the metric on each resource that we've associated the metric with (and all namespaced resources must be associated with a namespace), and will fill in the <<.GroupBy>> section with the appropriate label depending on which we ask for.
 
-We can now connect to $KUBERNETES/apis/custom.metrics.k8s.io/v1beta1/namespaces/default/pods/*/nginx_vts_server_requests_per_second, and we should see
+We can now connect to $KUBERNETES/apis/custom.metrics.k8s.io/v1bet a1/namespaces/default/pods/*/nginx_vts_server_requests_per_second, and we should see
 ```
 
 ```powershell
@@ -4885,6 +5330,8 @@ $ kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1/namespaces/default/pods
     }
   ]
 }
+
+
 ```
 
 其中133m等于0.133，即当前指标查询每秒钟请求数为0.133次
@@ -4918,6 +5365,25 @@ spec:
       metricName: nginx_vts_server_requests_per_second
       targetAverageValue: 10
 
+$ cat hpa-custom-metrics2.yaml
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: front-app-hpa
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: front-app
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+  - type: Pods
+    pods:
+      metricName: http_requests_total_per_second
+      targetAverageValue: 10
+      
 $ kubectl apply -f hpa-custom-metrics.yaml
 
 $ kubectl get hpa
@@ -4933,7 +5399,8 @@ $ kubectl get hpa
 $ kubectl get svc -o wide
 custom-metrics-demo   ClusterIP   10.104.110.245   <none>        80/TCP    16h
 
-$ ab -n1000 -c 5 http://10.104.110.245:80/
+$ yum -y install httpd-tools
+$ ab -n1000 -c 5 http://10.111.208.63:80/
 ```
 
 
@@ -4942,6 +5409,9 @@ $ ab -n1000 -c 5 http://10.104.110.245:80/
 
 ```powershell
 $ kubectl describe hpa nginx-custom-hpa
+$  kubectl get hpa -w
+
+打开granfran，查看pod的数据，流量大小
 ```
 
 
@@ -4950,6 +5420,9 @@ $ kubectl describe hpa nginx-custom-hpa
 
 ```powershell
 $ kubectl -n monitor logs --tail=100 -f custom-metrics-apiserver-c689ff947-m5vlr
+...
+I1224 17:24:07.723504       1 api.go:74] GET http://prometheus:9090/api/v1/series?match%5B%5D=http_requests_total%7B%7D&start=1640365447.722 200 OK
+I1224 17:24:07.723624       1 api.go:93] Response Body: {"status":"success","data":[{"__name__":"http_requests_total","instance":"10.244.0.201:8080","job":"kubernetes-sd-endpoints","kubernetes_name":"front-
 ...
 I0802 04:43:58.404559       1 httplog.go:90] GET /apis/custom.metrics.k8s.io/v1beta1/namespaces/default/pods/%2A/nginx_vts_server_requests_per_second?labelSelector=app%3Dcustom-metrics-demo: (20.713209ms) 200 [kube-controller-manager/v1.16.0 (linux/amd64) kubernetes/2bd9643/system:serviceaccount:kube-system:horizontal-pod-autoscaler 172.21.51.143:60626]
 
@@ -4965,11 +5438,16 @@ http://prometheus:9090/api/v1/query?query=%28sum%28rate%28nginx_vts_server_reque
 I1028 08:56:05.289421       1 api.go:74] GET http://prometheus:9090/api/v1/query?query=%28sum%28rate%28nginx_vts_server_requests_total%7Bkubernetes_namespace%3D%22default%22%2Ckubernetes_pod_name%3D~%22custom-metrics-demo-95b5bc949-9vd8q%7Ccustom-metrics-demo-95b5bc949-qrpnp%22%7D%5B1m%5D%29%29+by+%28kubernetes_pod_name%29%29&time=1603875365.284 200 OK
 ```
 
+```shell
+# 实际调用的接口
+$ kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1/namespaces/default/pods/*/http_requests_total_per_second" | jq 
+```
 
 
 
 
-补充：coredns通用指标的hpa
+
+1）补充：coredns通用指标的hpa
 
 添加指标：
 
@@ -5020,12 +5498,12 @@ spec:
     kind: Deployment
     name: coredns
   minReplicas: 2
-  maxReplicas: 3
+  maxReplicas: 19
   metrics:
   - type: Pods
     pods:
       metricName: coredns_dns_request_count_total_1minute
-      targetAverageValue: 1
+      targetAverageValue: 1000
 ```
 
 
@@ -5038,9 +5516,118 @@ sum(rate(coredns_dns_request_count_total{kubernetes_namespace="default",kubernet
 
 
 
+2）可以通过正则匹配的方式，实现对同一类别的业务指标的定义
+
+对应的PrmSQL为
+
+```shell
+{__name__=~".*_requests_total",kubernetes_namespace!="",kubernetes_pod_name!=""}
+```
 
 
-追加：Adapter查询数据和直接查询Prometheus数据不一致（相差4倍）的问题。
+
+![image-20211225014740371](C:\Users\hua'wei\AppData\Roaming\Typora\typora-user-images\image-20211225014740371.png)
+
+```shell
+$ cat custom-metrics-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adapter-config
+  namespace: monitor
+data:
+  config.yaml: |
+    rules:
+    - seriesQuery: '{__name__=~".*_requests_total",kubernetes_namespace!="",kubernetes_pod_name!=""}'
+      seriesFilters: []
+      resources:
+        overrides:
+          kubernetes_namespace: {resource: "namespace"}
+          kubernetes_pod_name: {resource: "pod"}
+      name:
+        matches: "^(.*)_total"
+        as: "${1}_per_second"
+      metricsQuery: (sum(rate(<<.Series>>{<<.LabelMatchers>>}[1m])) by (<<.GroupBy>>))
+```
+
+
+
+再次查看当前可用的自定义指标
+
+```shell
+ kubectl apply -f custom-metrics-configmap.yaml
+ kubectl -n monitor delete pod custom-metrics-apiserver-68c5b64b9-s5prb
+ 
+ kubectl get --raw /apis/custom.metrics.k8s.io/v1beta2 |jq
+ {
+  "kind": "APIResourceList",
+  "apiVersion": "v1",
+  "groupVersion": "custom.metrics.k8s.io/v1beta2",
+  "resources": [
+    {
+      "name": "namespaces/coredns_forward_requests_per_second",
+      "singularName": "",
+      "namespaced": false,
+      "kind": "MetricValueList",
+      "verbs": [
+        "get"
+      ]
+    },
+    {
+      "name": "pods/coredns_forward_requests_per_second",
+      "singularName": "",
+      "namespaced": true,
+      "kind": "MetricValueList",
+      "verbs": [
+        "get"
+      ]
+    },
+    {
+      "name": "namespaces/http_requests_per_second",
+      "singularName": "",
+      "namespaced": false,
+      "kind": "MetricValueList",
+      "verbs": [
+        "get"
+      ]
+    },
+    {
+      "name": "pods/http_requests_per_second",
+      "singularName": "",
+      "namespaced": true,
+      "kind": "MetricValueList",
+      "verbs": [
+        "get"
+      ]
+    },
+    {
+      "name": "namespaces/coredns_dns_requests_per_second",
+      "singularName": "",
+      "namespaced": false,
+      "kind": "MetricValueList",
+      "verbs": [
+        "get"
+      ]
+    },
+    {
+      "name": "pods/coredns_dns_requests_per_second",
+      "singularName": "",
+      "namespaced": true,
+      "kind": "MetricValueList",
+      "verbs": [
+        "get"
+      ]
+    }
+  ]
+}
+
+```
+
+
+
+
+
+3）追加：Adapter查询数据和直接查询Prometheus数据不一致（相差4倍）的问题。
 
 ```powershell
 $ vi custom-metrics-configmap.yaml
@@ -5090,4 +5677,12 @@ $ kubectl get --raw "/apis/custom.metrics.k8s.io/v1beta1/namespaces/default/pods
   ]
 }
 ```
+
+
+
+### 重点回顾
+
+详情见线上思维导图
+
+
 
