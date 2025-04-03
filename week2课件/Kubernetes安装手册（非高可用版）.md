@@ -343,6 +343,86 @@ docker logs -f 32323
 systemctl status kubelet
 ```
 
+` 启动失败，证书过期，如何处理` 
+
+```python
+# k8s异常
+# 6443 是k8s集群的端口
+[root@k8s-master ~]# kubectl get nodes
+The connection to the server 192.168.116.133:6443 was refused - did you specify the right host or port?
+
+# 按照上面的检测流程
+[root@k8s-master ~]# docker ps -a |grep apiserver
+[root@k8s-master ~]# docker logs -f fa64c5d41f35
+W0928 10:02:43.221401       1 clientconn.go:1223] grpc: addrConn.createTransport failed to connect to {https://127.0.0.1:2379  <nil> 0 <nil>}. Err :connection error: desc = "transport: authentication handshake failed: x509: certificate has expired or is not yet valid: current time 2024-09-28T10:02:43Z is after 2024-06-26T01:17:26Z". Reconnecting...
+
+# 查看证书信息
+[root@k8s-master kubernetes]# kubeadm alpha certs check-expiration
+[check-expiration] Reading configuration from the cluster...
+[check-expiration] FYI: You can look at this config file with 'kubectl -n kube-system get cm kubeadm-config -oyaml'
+[check-expiration] Error reading configuration from the Cluster. Falling back to default configuration
+
+W0928 06:15:26.418876   11217 configset.go:348] WARNING: kubeadm cannot validate component configs for API groups [kubelet.config.k8s.io kubeproxy.config.k8s.io]
+CERTIFICATE                EXPIRES                  RESIDUAL TIME   CERTIFICATE AUTHORITY   EXTERNALLY MANAGED
+admin.conf                 Jun 26, 2024 01:17 UTC   <invalid>                               no      
+apiserver                  Jun 26, 2024 01:17 UTC   <invalid>       ca                      no      
+apiserver-etcd-client      Jun 26, 2024 01:17 UTC   <invalid>       etcd-ca                 no      
+apiserver-kubelet-client   Jun 26, 2024 01:17 UTC   <invalid>       ca                      no      
+controller-manager.conf    Jun 26, 2024 01:17 UTC   <invalid>                               no      
+etcd-healthcheck-client    Jun 26, 2024 01:17 UTC   <invalid>       etcd-ca                 no      
+etcd-peer                  Jun 26, 2024 01:17 UTC   <invalid>       etcd-ca                 no      
+etcd-server                Jun 26, 2024 01:17 UTC   <invalid>       etcd-ca                 no      
+front-proxy-client         Jun 26, 2024 01:17 UTC   <invalid>       front-proxy-ca          no      
+scheduler.conf             Jun 26, 2024 01:17 UTC   <invalid>                               no      
+
+CERTIFICATE AUTHORITY   EXPIRES                  RESIDUAL TIME   EXTERNALLY MANAGED
+ca                      Jun 24, 2033 01:17 UTC   8y              no      
+etcd-ca                 Jun 24, 2033 01:17 UTC   8y              no      
+front-proxy-ca          Jun 24, 2033 01:17 UTC   8y              no      
+
+# 备份证书
+[root@k8s-master kubernetes]# cp -r pki pki-old-2023/ 
+
+# 重新生成证书
+[root@k8s-master kubernetes]# sudo kubeadm alpha certs renew all
+[renew] Reading configuration from the cluster...
+[renew] FYI: You can look at this config file with 'kubectl -n kube-system get cm kubeadm-config -oyaml'
+[renew] Error reading configuration from the Cluster. Falling back to default configuration
+
+W0928 06:20:34.459193   13873 configset.go:348] WARNING: kubeadm cannot validate component configs for API groups [kubelet.config.k8s.io kubeproxy.config.k8s.io]
+certificate embedded in the kubeconfig file for the admin to use and for kubeadm itself renewed
+certificate for serving the Kubernetes API renewed
+certificate the apiserver uses to access etcd renewed
+certificate for the API server to connect to kubelet renewed
+certificate embedded in the kubeconfig file for the controller manager to use renewed
+certificate for liveness probes to healthcheck etcd renewed
+certificate for etcd nodes to communicate with each other renewed
+certificate for serving etcd renewed
+certificate for the front proxy client renewed
+certificate embedded in the kubeconfig file for the scheduler manager to use renewed
+[root@k8s-master kubernetes]# 
+
+# 更新config
+[root@k8s-master kubernetes]# cd ~/.kube/
+[root@k8s-master .kube]# cp config config-old-2023
+[root@k8s-master .kube]# cp /etc/kubernetes/admin.conf config
+
+# 重启 kubelet 服务
+systemctl restart kubelet
+ 
+# 重启 kube-apiserver、kube-controller-manage、kube-scheduler 容器
+docker ps | grep kube-apiserver | grep -v pause | awk '{print $1}' | xargs -i docker restart {}
+docker ps | grep kube-controller-manage | grep -v pause | awk '{print $1}' | xargs -i docker restart {}
+docker ps | grep kube-scheduler | grep -v pause | awk '{print $1}' | xargs -i docker restart {}
+
+# 疑问？根据如上操作，依旧存在异常
+k8s  certificate has expired or is not yet valid: current time 2024-09-28T10:02:43Z is after 2024-06-26T01:17:26Z"
+
+# 重启虚拟机，解决
+```
+
+
+
 
 
 ### 5. 添加slave节点到集群中
